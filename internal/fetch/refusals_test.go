@@ -1,6 +1,7 @@
 package fetch_test
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -74,6 +75,88 @@ func TestRunStartsTheStreakOverOnceTheHostAnswersNormally(t *testing.T) {
 	// in a row and rest the host for 2s.
 	if gap := b[1].Sub(b[0]); gap < time.Second || gap > pauseWithSlack(time.Second) {
 		t.Errorf("after a refusal that followed a normal answer the host was asked again after %v, want 1s", gap)
+	}
+}
+
+func TestRunDoesNotTakeAnEarlierRequestsAnswerAsTheHostRecovering(t *testing.T) {
+	t.Parallel()
+	refusals := &failuresThenSuccess{n: 2}
+	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slow" {
+			// Admitted before the host began refusing and answered after it did, which is what a
+			// rate limiter that turns requests away at once and serves the others slowly does.
+			time.Sleep(300 * time.Millisecond)
+			writeSyntheticHTML(w, "<p>slow</p>")
+			return
+		}
+		if refusals.stillFailing() {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		writeSyntheticHTML(w, "<p>finally</p>")
+	})
+	st, _ := openFreshStore(t)
+
+	summary := runFetchOver(t, st, site.addresses("/slow", "/refused"), func(cfg *fetch.RunConfig) {
+		cfg.Workers = 2
+	})
+
+	if !summary.Complete() {
+		t.Fatalf("summary = %v", summary)
+	}
+	refused := site.arrivalTimes("/refused")
+	if len(refused) != 3 {
+		t.Fatalf("/refused was requested %d times, want 3", len(refused))
+	}
+	// The retry was refused again, so that is two refusals in a row and the pause doubles to
+	// 2s. Had the 200 for /slow ended the streak, it would count as a first refusal and the
+	// host would rest for 1s again, never for longer however long it kept refusing.
+	if gap := refused[2].Sub(refused[1]); gap < 2*time.Second || gap > pauseWithSlack(2*time.Second) {
+		t.Errorf("after the second refusal in a row the host was asked again after %v, want 2s", gap)
+	}
+}
+
+func TestRunStopsCleanlyWhenInterruptedWhileEveryHostIsResting(t *testing.T) {
+	refused := make(chan struct{}, 1)
+	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+		refused <- struct{}{}
+	})
+	st, _ := openFreshStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-refused
+		// Time for the scheduler to take the refusal in: from then on nothing is in flight,
+		// nothing will arrive, and the only thing left to wake it is the cancellation.
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+	}()
+	finished := make(chan struct{})
+	var summary fetch.RunSummary
+	var runErr error
+	go func() {
+		defer close(finished)
+		summary, runErr = fetch.Run(ctx, fetch.RunConfig{
+			Store: st, Addresses: site.addresses("/resting"), Workers: 1, Rate: 1000, Timeout: time.Minute,
+		})
+	}()
+
+	select {
+	case <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return after it was cancelled while the only host was resting")
+	}
+	if runErr != nil {
+		t.Fatalf("an interruption is not an error: %v", runErr)
+	}
+	if want := (fetch.RunSummary{Listed: 1, Pending: 1}); summary != want {
+		t.Errorf("summary = %+v, want %+v", summary, want)
+	}
+	if page := ledgerRowOf(t, st, site.address("/resting")); page.State != store.StatePending || page.Attempts != 1 {
+		t.Errorf("row = %+v, want pending after the one refused attempt", page)
 	}
 }
 

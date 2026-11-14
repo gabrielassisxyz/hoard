@@ -54,10 +54,7 @@ func (e *fetchScheduler) loop(ctx context.Context) error {
 	defer cancel()
 	interrupted := ctx.Done()
 	var failure error
-	for e.remaining > 0 && (!e.stopping || e.inFlight > 0) {
-		if runCtx.Err() != nil {
-			e.stopping = true
-		}
+	for e.shouldContinue(runCtx) {
 		var wakeAt time.Time
 		if !e.stopping {
 			wakeAt = e.startReadyJobs(runCtx)
@@ -72,14 +69,14 @@ func (e *fetchScheduler) loop(ctx context.Context) error {
 		case result := <-e.results:
 			if err := e.settle(result); err != nil && failure == nil {
 				// The ledger or the disk gave out: asking the network for more would only
-				// pile up pages that cannot be recorded.
-				failure, e.stopping = err, true
+				// pile up pages that cannot be recorded. Cancelling is what stops the loop.
+				failure = err
 				cancel()
 			}
 		case <-wake:
 		case <-interrupted:
-			// Waking the loop is all that is needed: the check at its top sees the cancelled
-			// context and stops.
+			// Waking the loop is all that is needed: shouldContinue sees the cancelled
+			// context and stops it.
 			interrupted = nil
 		}
 		if timer != nil {
@@ -88,6 +85,16 @@ func (e *fetchScheduler) loop(ctx context.Context) error {
 	}
 	e.requests.Wait()
 	return failure
+}
+
+// shouldContinue is asked before every round, so a cancelled context, whether the caller's
+// or the one cancelled for a failure of the store, ends the loop as soon as what was in
+// flight has come back, even when nothing is in flight and nothing will wake it.
+func (e *fetchScheduler) shouldContinue(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		e.stopping = true
+	}
+	return e.remaining > 0 && (!e.stopping || e.inFlight > 0)
 }
 
 // startReadyJobs starts everything that can start now and returns the moment something
