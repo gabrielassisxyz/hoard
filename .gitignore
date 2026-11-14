@@ -19,3 +19,7 @@
 
 # The task tracker's database. It is working state, not part of the project.
 .beads
+
+# The binary `go build -o hoard ./cmd/hoard` writes at the repository root. Anchored, so
+# it does not also hide the cmd/hoard directory.
+/hoard
