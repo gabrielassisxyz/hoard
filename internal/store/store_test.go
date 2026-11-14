@@ -179,13 +179,28 @@ func TestMarkOKNeedsAStoredBodyWithItsHashAndSize(t *testing.T) {
 	}
 	const address = "https://site.test/a"
 	absent := BodyRef{SHA256: sha256HexOf([]byte("never stored")), Size: 12}
+	ref, err := s.PutBody([]byte("<p>held</p>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A name of the right length but not a hash, with a file where it would point: only the
+	// check on the name itself can refuse it, since the file exists and the length is right.
+	notAHash := strings.Repeat("g", 64)
+	decoy := filepath.Join(s.dir, "raw", notAHash[:2], notAHash+bodySuffix)
+	if err := os.MkdirAll(filepath.Dir(decoy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(decoy, []byte("not a body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	refused := map[string]Outcome{
-		"no body at all":           {},
-		"hash without a file":      {Body: absent},
-		"hash that is not a hash":  {Body: BodyRef{SHA256: "xyz", Size: 1}},
-		"negative size":            {Body: BodyRef{SHA256: absent.SHA256, Size: -1}},
-		"hash missing, size given": {Body: BodyRef{Size: 12}},
+		"no body at all":                 {},
+		"hash without a file":            {Body: absent},
+		"hash that is too short":         {Body: BodyRef{SHA256: "xyz", Size: 1}},
+		"hash that is not hexadecimal":   {Body: BodyRef{SHA256: notAHash, Size: 1}},
+		"negative size on a stored body": {Body: BodyRef{SHA256: ref.SHA256, Size: -1}},
+		"hash missing, size given":       {Body: BodyRef{Size: 12}},
 	}
 	for name, outcome := range refused {
 		if err := s.MarkOK(address, outcome); err == nil {
@@ -197,10 +212,6 @@ func TestMarkOKNeedsAStoredBodyWithItsHashAndSize(t *testing.T) {
 		}
 	}
 
-	ref, err := s.PutBody([]byte("<p>held</p>"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := s.MarkOK(address, Outcome{Body: ref, HTTPStatus: 200}); err != nil {
 		t.Fatalf("MarkOK with a stored body: %v", err)
 	}
