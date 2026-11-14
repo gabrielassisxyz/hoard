@@ -154,8 +154,11 @@
   only then does its ledger row become `ok`. A crash may leave a body with no row, never a
   row naming a body that is not there.
 - **A settled address is not asked again.** `ok` and `failed` rows keep their state across
-  runs; only `pending` ones are fetched. Every attempt, refusals included, counts toward 3
-  per address per run.
+  runs; only `pending` ones are fetched. A network error or a 5xx counts toward 3 tries per
+  address per run, and the third makes it `failed`.
+- **A refusal never fails an address.** A 429 or 403 means "later", so the address stays
+  `pending` and spends none of its tries. After 5 refusals in a row from one host the run
+  stops asking that host, leaves what it owed `pending`, and ends short of its list.
 - **A host is its host and port**, lower-cased, without the scheme's default port. Each has
   its own limiter and its own pause after a 429 or 403. Every hop of a redirect is a request
   of its own, paced and paused by the host it leads to.

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -151,7 +152,11 @@ func TestRunStopsCleanlyWhenInterruptedWhileEveryHostIsResting(t *testing.T) {
 	}
 }
 
-func TestRunStopsAskingForAnAddressAHostKeepsRefusing(t *testing.T) {
+// The number of refusals in a row after which a run stops asking a host. It mirrors the
+// package's own limit on purpose: a change to that limit should have to change this too.
+const refusalsBeforeAHostIsLeft = 5
+
+func TestRunLeavesAnAddressPendingWhenItsHostKeepsRefusing(t *testing.T) {
 	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "0")
 		w.WriteHeader(http.StatusForbidden)
@@ -160,15 +165,73 @@ func TestRunStopsAskingForAnAddressAHostKeepsRefusing(t *testing.T) {
 
 	summary := runFetchOver(t, st, site.addresses("/walled"))
 
-	if want := (fetch.RunSummary{Listed: 1, Failed: 1}); summary != want {
-		t.Fatalf("summary = %+v, want %+v", summary, want)
+	if want := (fetch.RunSummary{Listed: 1, Pending: 1}); summary != want {
+		t.Fatalf("summary = %+v, want %+v: a refusal must never fail an address", summary, want)
 	}
 	page := ledgerRowOf(t, st, site.address("/walled"))
-	if page.State != store.StateFailed || page.Attempts != 3 || !strings.Contains(page.LastError, "403") {
-		t.Errorf("row = %+v, want failed after three attempts naming the 403", page)
+	if page.State != store.StatePending || page.Attempts != refusalsBeforeAHostIsLeft || !strings.Contains(page.LastError, "403") {
+		t.Errorf("row = %+v, want pending after %d refused requests naming the 403", page, refusalsBeforeAHostIsLeft)
 	}
-	if got := site.requestCount(); got != 3 {
-		t.Errorf("%d requests, want exactly 3", got)
+	if got := site.requestCount(); got != refusalsBeforeAHostIsLeft {
+		t.Fatalf("%d requests, want the run to stop asking after exactly %d", got, refusalsBeforeAHostIsLeft)
+	}
+
+	runFetchOver(t, st, site.addresses("/walled"))
+
+	if got := site.requestCount(); got <= refusalsBeforeAHostIsLeft {
+		t.Errorf("a later run made no request: the refused address was not asked for again")
+	}
+}
+
+func TestRunKeepsAskingThroughMoreRefusalsThanItHasRetries(t *testing.T) {
+	const page = "<p>served at last</p>"
+	const refusalsFirst = refusalsBeforeAHostIsLeft - 1
+	var asked atomic.Int32
+	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
+		if asked.Add(1) <= refusalsFirst {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		writeSyntheticHTML(w, page)
+	})
+	st, _ := openFreshStore(t)
+
+	summary := runFetchOver(t, st, site.addresses("/patient"))
+
+	if want := (fetch.RunSummary{Listed: 1, Held: 1}); summary != want {
+		t.Fatalf("summary = %+v, want %+v: %d refusals are more than the retries and still not a failure", summary, want, refusalsFirst)
+	}
+	row := ledgerRowOf(t, st, site.address("/patient"))
+	if row.State != store.StateOK || row.Attempts != refusalsFirst+1 {
+		t.Errorf("row = %+v, want ok on request %d", row, refusalsFirst+1)
+	}
+}
+
+func TestRunLeavesOnlyTheRefusingHostBehind(t *testing.T) {
+	walled := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	open := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
+		writeSyntheticHTML(w, "<p>from the host that answers</p>")
+	})
+	st, _ := openFreshStore(t)
+	addresses := append(walled.addresses("/first", "/second"), open.address("/page"))
+
+	summary := runFetchOver(t, st, addresses, func(cfg *fetch.RunConfig) { cfg.Workers = 1 })
+
+	if want := (fetch.RunSummary{Listed: 3, Held: 1, Pending: 2}); summary != want {
+		t.Fatalf("summary = %+v, want %+v", summary, want)
+	}
+	if row := ledgerRowOf(t, st, open.address("/page")); row.State != store.StateOK {
+		t.Errorf("the answering host's page = %+v, want ok", row)
+	}
+	if row := ledgerRowOf(t, st, walled.address("/second")); row.State != store.StatePending || row.Attempts != 0 {
+		t.Errorf("the address behind the refused one = %+v, want pending and never requested", row)
+	}
+	if got := len(walled.arrivalTimes("/second")); got != 0 {
+		t.Errorf("%d requests for the address behind the refused one, want none once the host was left", got)
 	}
 }
 

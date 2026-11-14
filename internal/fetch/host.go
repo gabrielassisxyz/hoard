@@ -15,7 +15,8 @@ type pageJob struct {
 	target  *url.URL // what the next request asks for: the address, then wherever it was sent
 	host    *hostQueue
 	hops    int // redirects followed so far
-	// attempts made in this run that ended in an answer other than a redirect.
+	// attempts made in this run that count against its retries: answers other than a
+	// redirect or a refusal.
 	attempts int
 	// startedAt is when the request now in flight was sent, which is how a late answer is told
 	// from one given after the host's last refusal.
@@ -33,6 +34,9 @@ type hostQueue struct {
 	// one after another; an answer of any other kind to a later request ends the streak.
 	refusals      int
 	lastRefusalAt time.Time
+	// givenUp is set once the streak reaches maxRefusalsInARow: the run asks this host for
+	// nothing more, and what it still owed stays pending.
+	givenUp bool
 }
 
 func newHostQueue(requestsPerSecond float64) *hostQueue {

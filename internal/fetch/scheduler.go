@@ -163,7 +163,6 @@ func (e *fetchScheduler) settle(result attemptResult) error {
 	if result.kind == attemptRedirect {
 		return e.followRedirect(job, result)
 	}
-	job.attempts++
 	switch result.kind {
 	case attemptStored:
 		e.remaining--
@@ -172,10 +171,43 @@ func (e *fetchScheduler) settle(result attemptResult) error {
 		e.remaining--
 		return e.cfg.Store.MarkFailed(job.address, result.outcome)
 	case attemptRefused:
-		return e.tryAgainOrGiveUp(job, result, true)
+		return e.waitOutRefusal(job, result)
 	default:
-		return e.tryAgainOrGiveUp(job, result, false)
+		job.attempts++
+		return e.tryAgainOrGiveUp(job, result)
 	}
+}
+
+// waitOutRefusal keeps a refused address open. A refusal says the host wants to be asked
+// later, not that the page is gone, so it spends none of the address's retries and never
+// marks it failed: a page failed here would be skipped by every later run. What bounds a host
+// that refuses for good is its own streak, and then the run stops asking that host.
+func (e *fetchScheduler) waitOutRefusal(job *pageJob, result attemptResult) error {
+	if err := e.cfg.Store.NoteAttempt(job.address, result.outcome); err != nil {
+		return err
+	}
+	host := job.host
+	if host.refusals >= maxRefusalsInARow {
+		e.giveUpOnHost(host)
+	}
+	switch {
+	case host.givenUp:
+		e.remaining--
+	case !e.stopping:
+		host.requeue(job, true)
+	}
+	return nil
+}
+
+// giveUpOnHost leaves everything still waiting for a host pending, for a later run to ask
+// again. The run then ends short of its list, which is what makes it exit non-zero.
+func (e *fetchScheduler) giveUpOnHost(host *hostQueue) {
+	if host.givenUp {
+		return
+	}
+	host.givenUp = true
+	e.remaining -= len(host.waiting)
+	host.waiting = nil
 }
 
 // learnFromHost applies what an answer says about the host that gave it. A refusal rests the
@@ -240,7 +272,7 @@ func (e *fetchScheduler) followRedirect(job *pageJob, result attemptResult) erro
 	return nil
 }
 
-func (e *fetchScheduler) tryAgainOrGiveUp(job *pageJob, result attemptResult, atFront bool) error {
+func (e *fetchScheduler) tryAgainOrGiveUp(job *pageJob, result attemptResult) error {
 	if job.attempts >= maxAttemptsPerRun {
 		e.remaining--
 		return e.cfg.Store.MarkFailed(job.address, result.outcome)
@@ -248,8 +280,11 @@ func (e *fetchScheduler) tryAgainOrGiveUp(job *pageJob, result attemptResult, at
 	if err := e.cfg.Store.NoteAttempt(job.address, result.outcome); err != nil {
 		return err
 	}
-	if !e.stopping {
-		job.host.requeue(job, atFront)
+	switch {
+	case job.host.givenUp:
+		e.remaining--
+	case !e.stopping:
+		job.host.requeue(job, false)
 	}
 	return nil
 }

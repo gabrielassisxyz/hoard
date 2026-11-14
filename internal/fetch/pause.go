@@ -14,6 +14,9 @@ const (
 	defaultRefusalPause = 30 * time.Second
 	// The longest a host is ever paused for one refusal, however many came in a row.
 	maxRefusalPause = 10 * time.Minute
+	// How many refusals in a row end the run's dealings with a host. With the default pause
+	// that is seven and a half minutes of waiting before the host is left for a later run.
+	maxRefusalsInARow = 5
 )
 
 // ParseRetryAfter reads a Retry-After header, which is either a whole number of seconds
