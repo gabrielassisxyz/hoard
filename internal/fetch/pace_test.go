@@ -12,6 +12,13 @@ import (
 	"github.com/gabrielassisxyz/hoard/internal/store"
 )
 
+// A pause is a lower bound the scheduler must honour and, just as much, a time it must not
+// overshoot: a host that is paused for 30s when it asked for 1s has been wronged too. The
+// slack covers timer and scheduling lateness on a busy machine.
+func pauseWithSlack(pause time.Duration) time.Duration {
+	return pause + 800*time.Millisecond
+}
+
 func numberedAddresses(site *recordingSite, prefix string, count int) []string {
 	addresses := make([]string, count)
 	for i := range addresses {
@@ -67,6 +74,12 @@ func TestRunNeverAsksOneHostFasterThanItsRate(t *testing.T) {
 	}
 	if most := mostArrivalsInAnyWindow(arrivals, time.Second); most > 51 {
 		t.Errorf("%d requests arrived within one second, at most 51 are allowed at 50 a second", most)
+	}
+	// The one-second window cannot tell a burst of one from a burst of two: the extra
+	// request lands just past its edge. Requests 20ms apart never share a 5ms window, and
+	// two sent back to back always do.
+	if most := mostArrivalsInAnyWindow(arrivals, 5*time.Millisecond); most > 1 {
+		t.Errorf("%d requests arrived within 5ms of one another at 50 a second: the limiter allows a burst", most)
 	}
 	if elapsed < 1100*time.Millisecond {
 		t.Errorf("60 requests at 50 a second took %v, at least 1.1s is required", elapsed)
@@ -131,11 +144,11 @@ func TestRunWaitsOutARefusalBeforeAskingTheHostAgain(t *testing.T) {
 			if len(limited) != 2 || len(neighbour) != 1 {
 				t.Fatalf("requests: /limited %d, /neighbour %d", len(limited), len(neighbour))
 			}
-			if gap := limited[1].Sub(limited[0]); gap < time.Second {
+			if gap := limited[1].Sub(limited[0]); gap < time.Second || gap > pauseWithSlack(time.Second) {
 				t.Errorf("the refused address was asked again after %v, Retry-After said 1s", gap)
 			}
-			if gap := neighbour[0].Sub(limited[0]); gap < time.Second {
-				t.Errorf("another address on the refusing host was asked after %v, inside the pause", gap)
+			if gap := neighbour[0].Sub(limited[0]); gap < time.Second || gap > pauseWithSlack(time.Second) {
+				t.Errorf("another address on the refusing host was asked after %v, want it to wait out the 1s pause", gap)
 			}
 		})
 	}
@@ -166,10 +179,10 @@ func TestRunDoublesThePauseOnConsecutiveRefusals(t *testing.T) {
 	if len(arrivals) != 3 {
 		t.Fatalf("%d requests, want 3", len(arrivals))
 	}
-	if first := arrivals[1].Sub(arrivals[0]); first < time.Second {
+	if first := arrivals[1].Sub(arrivals[0]); first < time.Second || first > pauseWithSlack(time.Second) {
 		t.Errorf("after the first refusal the host was asked again after %v, want 1s", first)
 	}
-	if second := arrivals[2].Sub(arrivals[1]); second < 2*time.Second {
+	if second := arrivals[2].Sub(arrivals[1]); second < 2*time.Second || second > pauseWithSlack(2*time.Second) {
 		t.Errorf("after the second refusal in a row the host was asked again after %v, want the pause doubled to 2s", second)
 	}
 }
@@ -200,8 +213,11 @@ func TestRunFallsBackToItsOwnPauseWhenARefusalNamesNone(t *testing.T) {
 				t.Fatalf("summary = %v", summary)
 			}
 			arrivals := site.arrivalTimes("/p")
-			if len(arrivals) != 2 || arrivals[1].Sub(arrivals[0]) < time.Second {
-				t.Errorf("arrivals %v: the second should follow the first by the fallback pause of 1s", arrivals)
+			if len(arrivals) != 2 {
+				t.Fatalf("%d requests, want 2", len(arrivals))
+			}
+			if gap := arrivals[1].Sub(arrivals[0]); gap < time.Second || gap > pauseWithSlack(time.Second) {
+				t.Errorf("the host was asked again after %v, want the fallback pause of 1s", gap)
 			}
 		})
 	}
