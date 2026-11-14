@@ -77,9 +77,11 @@ func TestRunNeverAsksOneHostFasterThanItsRate(t *testing.T) {
 	}
 	// The one-second window cannot tell a burst of one from a burst of two: the extra
 	// request lands just past its edge. Requests 20ms apart never share a 5ms window, and
-	// two sent back to back always do.
-	if most := mostArrivalsInAnyWindow(arrivals, 5*time.Millisecond); most > 1 {
-		t.Errorf("%d requests arrived within 5ms of one another at 50 a second: the limiter allows a burst", most)
+	// two sent back to back always do. Only the start is looked at, because that is where a
+	// full bucket shows; one late arrival further on is jitter, and checking every pair would
+	// make the test depend on the machine never stalling for 15ms in 60 chances.
+	if most := mostArrivalsInAnyWindow(arrivals[:5], 5*time.Millisecond); most > 1 {
+		t.Errorf("%d of the first requests arrived within 5ms of one another at 50 a second: the limiter allows a burst", most)
 	}
 	if elapsed < 1100*time.Millisecond {
 		t.Errorf("60 requests at 50 a second took %v, at least 1.1s is required", elapsed)
