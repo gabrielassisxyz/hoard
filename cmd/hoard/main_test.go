@@ -326,7 +326,7 @@ func TestBinaryPassesItsFlagsToTheFetch(t *testing.T) {
 
 	t.Run("workers", func(t *testing.T) {
 		site := newCLISite(t, func(w http.ResponseWriter, r *http.Request) {
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			syntheticPageServer(w, r)
 		})
 		var lines []string

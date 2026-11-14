@@ -139,6 +139,21 @@ func TestHostKeyTreatsSpellingsOfOneSiteAsOne(t *testing.T) {
 	}
 }
 
+func TestEachHostGetsALimiterAtTheStatedRateWithABurstOfOne(t *testing.T) {
+	for _, rate := range []float64{0.5, 2, 50} {
+		limiter := newHostQueue(rate).limiter
+		if got := float64(limiter.Limit()); got != rate {
+			t.Errorf("limiter rate = %v, want %v", got, rate)
+		}
+		// Arrival times cannot show this reliably: a burst of two at 50 a second puts the extra
+		// request just past the edge of any one-second window, and the gap between the pair is
+		// lost in scheduling jitter. The limiter's own setting is exact.
+		if got := limiter.Burst(); got != 1 {
+			t.Errorf("limiter burst at %v a second = %d, want 1", rate, got)
+		}
+	}
+}
+
 func mustHostKey(t *testing.T, address string) string {
 	t.Helper()
 	parsed, err := url.Parse(address)

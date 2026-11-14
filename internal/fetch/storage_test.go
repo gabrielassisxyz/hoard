@@ -67,7 +67,7 @@ func TestRunStoresEveryBodyRawAndContentAddressed(t *testing.T) {
 		if page.State != store.StateOK || page.Attempts != 1 || page.HTTPStatus != http.StatusOK {
 			t.Errorf("%s: row = %+v, want ok after one attempt with status 200", uri, page)
 		}
-		if page.ContentType != "text/html; charset=utf-8" && uri != "/gzip" && uri != "/empty" {
+		if page.ContentType != "text/html; charset=utf-8" {
 			t.Errorf("%s: content type = %q", uri, page.ContentType)
 		}
 		if page.FetchedAt.Before(started.Add(-time.Second)) || page.FetchedAt.After(time.Now().Add(time.Second)) || page.FetchedAt.Location() != time.UTC {
