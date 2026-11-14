@@ -1,0 +1,14 @@
+# Git-ignored paths symlinked from the main tree into every new worktree.
+#
+# `git worktree add` materializes only tracked files, so a fresh worktree starts without
+# these, and the failure is silent: the session works without the file and never learns
+# it existed. Anything created at one of these paths inside a worktree is also deleted
+# with the worktree, without a warning, because ignored paths are excluded from git's
+# "worktree is dirty" check. A symlink prevents both.
+#
+# One path per line. `#` comments and blank lines are ignored. A path that does not
+# exist in the main tree is skipped, so listing an optional one costs nothing.
+local
+.beads
+.ai-jail
+.env

@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# The single gate. CI runs this file and nothing else, so green here means green there.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+echo "==> gitleaks"
+if command -v gitleaks >/dev/null 2>&1; then
+    gitleaks git --no-banner --redact
+else
+    # CI installs it; a machine without it must not report a secret scan it never ran.
+    echo "gitleaks is not installed: the secret scan did not run" >&2
+    exit 1
+fi
+
+if [ -f go.mod ]; then
+    echo "==> gofmt"
+    unformatted="$(gofmt -l .)"
+    if [ -n "$unformatted" ]; then
+        echo "$unformatted"
+        echo "run: gofmt -w ." >&2
+        exit 1
+    fi
+    echo "==> vet"
+    go vet ./...
+    echo "==> test"
+    go test ./...
+    echo "==> build (CGO off)"
+    CGO_ENABLED=0 go build ./...
+else
+    echo "==> go: no module yet, nothing to check"
+fi
+
+echo "==> bin/ci OK"
