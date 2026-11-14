@@ -217,15 +217,19 @@ func TestRunLeavesOnlyTheRefusingHostBehind(t *testing.T) {
 		writeSyntheticHTML(w, "<p>from the host that answers</p>")
 	})
 	st, _ := openFreshStore(t)
-	addresses := append(walled.addresses("/first", "/second"), open.address("/page"))
+	// The answering host has more pages than the refusing one has refusals to give, so the
+	// run is still going when the refusing host is left. That is the only moment at which an
+	// address still queued for it could wrongly be asked for.
+	const openPages = 3 * refusalsBeforeAHostIsLeft
+	addresses := append(walled.addresses("/first", "/second"), numberedAddresses(open, "p", openPages)...)
 
 	summary := runFetchOver(t, st, addresses, func(cfg *fetch.RunConfig) { cfg.Workers = 1 })
 
-	if want := (fetch.RunSummary{Listed: 3, Held: 1, Pending: 2}); summary != want {
+	if want := (fetch.RunSummary{Listed: openPages + 2, Held: openPages, Pending: 2}); summary != want {
 		t.Fatalf("summary = %+v, want %+v", summary, want)
 	}
-	if row := ledgerRowOf(t, st, open.address("/page")); row.State != store.StateOK {
-		t.Errorf("the answering host's page = %+v, want ok", row)
+	if got := len(walled.arrivalTimes("/first")); got != refusalsBeforeAHostIsLeft {
+		t.Fatalf("%d requests for the refused address, want exactly %d before the host is left", got, refusalsBeforeAHostIsLeft)
 	}
 	if row := ledgerRowOf(t, st, walled.address("/second")); row.State != store.StatePending || row.Attempts != 0 {
 		t.Errorf("the address behind the refused one = %+v, want pending and never requested", row)
