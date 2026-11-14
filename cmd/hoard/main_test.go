@@ -128,6 +128,19 @@ func (s *cliSite) hitsOn(path string) int {
 	return s.hits[path]
 }
 
+func (s *cliSite) peakInFlight() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.peak
+}
+
+// arrivalSpan is the time from the first request to the last.
+func (s *cliSite) arrivalSpan() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.arrivals[len(s.arrivals)-1].Sub(s.arrivals[0])
+}
+
 func writeListFile(t *testing.T, lines ...string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "list.txt")
@@ -307,8 +320,8 @@ func TestBinaryPassesItsFlagsToTheFetch(t *testing.T) {
 		if result.exitCode != 0 {
 			t.Fatalf("exit %d: %s", result.exitCode, result.stderr)
 		}
-		if site.peak != 2 {
-			t.Errorf("the server saw %d requests at once with --workers 2", site.peak)
+		if peak := site.peakInFlight(); peak != 2 {
+			t.Errorf("the server saw %d requests at once with --workers 2", peak)
 		}
 	})
 
@@ -323,7 +336,7 @@ func TestBinaryPassesItsFlagsToTheFetch(t *testing.T) {
 		if result.exitCode != 0 {
 			t.Fatalf("exit %d: %s", result.exitCode, result.stderr)
 		}
-		span := site.arrivals[len(site.arrivals)-1].Sub(site.arrivals[0])
+		span := site.arrivalSpan()
 		// Six requests at 20 a second are five intervals of 50ms; the default of 2 a second
 		// would take 2.5s.
 		if span < 200*time.Millisecond || span > 1500*time.Millisecond {
