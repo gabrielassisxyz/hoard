@@ -23,6 +23,8 @@ const (
 	defaultMaxBodyBytes = 64 << 20
 	// The same as the standard client's own cap, so a redirect loop ends in the same place.
 	maxRedirectsPerAddress = 10
+	// Far beyond any page, and low enough that reading one byte past it cannot overflow.
+	largestBodyLimit = 1 << 40
 )
 
 // RunConfig is everything Run needs. Only Store and Addresses are required.
@@ -93,6 +95,9 @@ func (c RunConfig) resolved() (RunConfig, error) {
 	if c.Workers < 0 || c.Timeout < 0 || c.MaxBodyBytes < 0 || c.RefusalPause < 0 ||
 		c.Rate < 0 || math.IsNaN(c.Rate) || math.IsInf(c.Rate, 0) {
 		return c, errors.New("fetch: workers, rate, timeout and limits cannot be negative")
+	}
+	if c.MaxBodyBytes > largestBodyLimit {
+		return c, fmt.Errorf("fetch: a body limit of %d bytes is above the %d that can be enforced", c.MaxBodyBytes, int64(largestBodyLimit))
 	}
 	c.Addresses = listedOnce(c.Addresses)
 	c.Workers = zeroToDefault(c.Workers, DefaultWorkers)

@@ -56,6 +56,8 @@ func TestRunConfigRefusesWhatCannotWork(t *testing.T) {
 		"negative timeout":  {Store: &store.Store{}, Timeout: -time.Second},
 		"negative limit":    {Store: &store.Store{}, MaxBodyBytes: -1},
 		"negative pause":    {Store: &store.Store{}, RefusalPause: -time.Second},
+		// Reading one byte past the limit to notice an overrun would wrap around to nothing.
+		"limit that overflows": {Store: &store.Store{}, MaxBodyBytes: math.MaxInt64},
 	}
 	for name, cfg := range cases {
 		if _, err := cfg.resolved(); err == nil {
