@@ -17,15 +17,20 @@
 - **Gate:** `bin/ci` — the exact thing CI runs.
 - **After clone:** `bin/install-hooks` once (gitleaks pre-commit, attribution commit-msg).
 - **New work:** `bin/worktree new <type>/<kebab-description>`, never in the main tree.
-- **Build / Test:** none yet. They arrive with the Go module and are added to `bin/ci`
-  in the same change.
+- **Build:** `CGO_ENABLED=0 go build -o hoard ./cmd/hoard` writes the binary at the
+  repository root, where `.gitignore` hides it.
+- **Test:** `go test ./...`, or `go test ./internal/fetch/` for one package. `bin/ci` runs
+  the same Go steps (gofmt, vet, test, build) because `go.mod` exists.
 
 ## Scope (current)
 
-- **Current scope:** nothing is implemented. The first target is one pipeline: read a list
-  of addresses, fetch their HTML under an explicit rate per host, store it raw, check the
-  result against a stated criterion. Don't expand beyond it without a present need; if a
-  change drifts past it, STOP and flag it.
+- **Current scope:** `hoard fetch` exists. It reads a list of addresses, fetches them under
+  a concurrency ceiling and an explicit rate per host, stores every 2xx body raw in a store
+  directory (`ledger.db` and `raw/<xx>/<sha256>.zst`), and reports how many it holds. Not
+  built yet: recipe files, discovering addresses, the success criterion, cookies,
+  `robots.txt`, assets, deriving clean HTML and Markdown. The first target is one pipeline
+  from a list of addresses to a checked raw capture; don't expand beyond it without a
+  present need, and if a change drifts past it, STOP and flag it.
 
 <!-- BEGIN universal-principles v3 -->
 ## Working principles
@@ -145,6 +150,18 @@
   command that prints the addresses. An unknown key in a recipe is an error.
 - **A run says what it did not get.** Expected against obtained is reported, and a run
   that took less than it was asked for does not exit 0.
+- **The body is written before its row.** A body file goes in by temporary file and rename;
+  only then does its ledger row become `ok`. A crash may leave a body with no row, never a
+  row naming a body that is not there.
+- **A settled address is not asked again.** `ok` and `failed` rows keep their state across
+  runs; only `pending` ones are fetched. A network error or a 5xx counts toward 3 tries per
+  address per run, and the third makes it `failed`.
+- **A refusal never fails an address.** A 429 or 403 means "later", so the address stays
+  `pending` and spends none of its tries. After 5 refusals in a row from one host the run
+  stops asking that host, leaves what it owed `pending`, and ends short of its list.
+- **A host is its host and port**, lower-cased, without the scheme's default port. Each has
+  its own limiter and its own pause after a 429 or 403. Every hop of a redirect is a request
+  of its own, paced and paused by the host it leads to.
 
 ## What never enters this repository
 
@@ -164,6 +181,7 @@
 | hurdle | class | gate |
 |---|---|---|
 | `bin/worktree` falls back to `master` when `origin/HEAD` is unset, which a fresh clone can lack; run `git remote set-head origin -a` and check the banner says `main` | tripwire | none yet |
+| A test that asserts an upper bound on elapsed time fails on a loaded CI runner, because `go test` compiles the pure-Go SQLite beside it and can starve a test for hundreds of milliseconds; assert lower bounds, or read the property off the code (a limiter's burst, which host owns which queue) | tripwire | none yet |
 
 **A hurdle promoted to a gate is deleted from this table, not duplicated.** The gate is the
 instruction; a line here restating it only dilutes the ones still unguarded.
