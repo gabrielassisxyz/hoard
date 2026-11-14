@@ -134,21 +134,11 @@ func TestRunStopsCleanlyWhenInterruptedWhileEveryHostIsResting(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 		cancel()
 	}()
-	finished := make(chan struct{})
-	var summary fetch.RunSummary
-	var runErr error
-	go func() {
-		defer close(finished)
-		summary, runErr = fetch.Run(ctx, fetch.RunConfig{
-			Store: st, Addresses: site.addresses("/resting"), Workers: 1, Rate: 1000, Timeout: time.Minute,
-		})
-	}()
 
-	select {
-	case <-finished:
-	case <-time.After(10 * time.Second):
-		t.Fatal("Run did not return after it was cancelled while the only host was resting")
-	}
+	summary, runErr := runFetchGuarded(t, ctx, fetch.RunConfig{
+		Store: st, Addresses: site.addresses("/resting"), Workers: 1, Rate: 1000, Timeout: time.Minute,
+	}, 10*time.Second)
+
 	if runErr != nil {
 		t.Fatalf("an interruption is not an error: %v", runErr)
 	}
@@ -195,9 +185,9 @@ func TestRunStopsAndReportsWhenTheStoreCannotTakeABody(t *testing.T) {
 	}
 	addresses := numberedAddresses(site, "p", 5)
 
-	summary, err := fetch.Run(t.Context(), fetch.RunConfig{
+	summary, err := runFetchGuarded(t, t.Context(), fetch.RunConfig{
 		Store: st, Addresses: addresses, Workers: 1, Rate: 1000, Timeout: 5 * time.Second,
-	})
+	}, 10*time.Second)
 
 	if err == nil || !strings.Contains(err.Error(), "store body") {
 		t.Fatalf("Run returned %v, want the store's error", err)

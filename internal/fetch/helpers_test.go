@@ -173,6 +173,28 @@ func runFetchOver(t *testing.T, st *store.Store, addresses []string, tweaks ...f
 	return summary
 }
 
+// runFetchGuarded runs fetch.Run and fails the test, rather than hanging it until the test
+// binary's own timeout, when it has not returned within limit.
+func runFetchGuarded(t *testing.T, ctx context.Context, cfg fetch.RunConfig, limit time.Duration) (fetch.RunSummary, error) {
+	t.Helper()
+	type finished struct {
+		summary fetch.RunSummary
+		err     error
+	}
+	done := make(chan finished, 1)
+	go func() {
+		summary, err := fetch.Run(ctx, cfg)
+		done <- finished{summary, err}
+	}()
+	select {
+	case result := <-done:
+		return result.summary, result.err
+	case <-time.After(limit):
+		t.Fatalf("fetch.Run had not returned after %v", limit)
+		return fetch.RunSummary{}, nil
+	}
+}
+
 func ledgerRowOf(t *testing.T, st *store.Store, address string) store.Page {
 	t.Helper()
 	page, found, err := st.Page(address)

@@ -305,21 +305,11 @@ func TestRunStopsCleanlyWhenInterrupted(t *testing.T) {
 		<-arrived
 		cancel()
 	}()
-	finished := make(chan struct{})
-	var summary fetch.RunSummary
-	var runErr error
-	go func() {
-		defer close(finished)
-		summary, runErr = fetch.Run(ctx, fetch.RunConfig{
-			Store: st, Addresses: addresses, Workers: 1, Rate: 1000, Timeout: time.Minute,
-		})
-	}()
 
-	select {
-	case <-finished:
-	case <-time.After(10 * time.Second):
-		t.Fatal("Run did not return after it was cancelled")
-	}
+	summary, runErr := runFetchGuarded(t, ctx, fetch.RunConfig{
+		Store: st, Addresses: addresses, Workers: 1, Rate: 1000, Timeout: time.Minute,
+	}, 10*time.Second)
+
 	if runErr != nil {
 		t.Fatalf("an interruption is not an error: %v", runErr)
 	}
