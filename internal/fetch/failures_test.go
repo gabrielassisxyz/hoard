@@ -18,7 +18,7 @@ func TestRunTreatsNotFoundAndGoneAsFinal(t *testing.T) {
 		case "/gone":
 			http.Error(w, "gone for good", http.StatusGone)
 		default:
-			serveHTML(w, "<p>here</p>")
+			writeSyntheticHTML(w, "<p>here</p>")
 		}
 	})
 	addresses := site.addresses("/missing", "/gone", "/fine")
@@ -30,7 +30,7 @@ func TestRunTreatsNotFoundAndGoneAsFinal(t *testing.T) {
 		t.Fatalf("summary = %+v, want %+v and not complete", summary, want)
 	}
 	for uri, status := range map[string]int{"/missing": 404, "/gone": 410} {
-		page := rowFor(t, first, site.address(uri))
+		page := ledgerRowOf(t, first, site.address(uri))
 		if page.State != store.StateFailed || page.Attempts != 1 || page.HTTPStatus != status {
 			t.Errorf("%s: row = %+v, want failed after one attempt with status %d", uri, page, status)
 		}
@@ -61,7 +61,7 @@ func TestRunTreatsNotFoundAndGoneAsFinal(t *testing.T) {
 }
 
 func TestRunRetriesServerErrorsUpToThreeAttempts(t *testing.T) {
-	flaky := &countdown{n: 2}
+	flaky := &failuresThenSuccess{n: 2}
 	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/flaky":
@@ -69,7 +69,7 @@ func TestRunRetriesServerErrorsUpToThreeAttempts(t *testing.T) {
 				http.Error(w, "try later", http.StatusInternalServerError)
 				return
 			}
-			serveHTML(w, "<p>recovered</p>")
+			writeSyntheticHTML(w, "<p>recovered</p>")
 		case "/down":
 			http.Error(w, "still broken", http.StatusInternalServerError)
 		case "/unavailable":
@@ -83,11 +83,11 @@ func TestRunRetriesServerErrorsUpToThreeAttempts(t *testing.T) {
 	if want := (fetch.RunSummary{Listed: 3, Held: 1, Failed: 2}); summary != want {
 		t.Fatalf("summary = %+v, want %+v", summary, want)
 	}
-	if page := rowFor(t, st, site.address("/flaky")); page.State != store.StateOK || page.Attempts != 3 || page.LastError != "" {
+	if page := ledgerRowOf(t, st, site.address("/flaky")); page.State != store.StateOK || page.Attempts != 3 || page.LastError != "" {
 		t.Errorf("/flaky: row = %+v, want ok with three attempts and no error left on it", page)
 	}
 	for uri, status := range map[string]int{"/down": 500, "/unavailable": 503} {
-		page := rowFor(t, st, site.address(uri))
+		page := ledgerRowOf(t, st, site.address(uri))
 		if page.State != store.StateFailed || page.Attempts != 3 || page.HTTPStatus != status {
 			t.Errorf("%s: row = %+v, want failed after three attempts", uri, page)
 		}
@@ -101,7 +101,7 @@ func TestRunRetriesServerErrorsUpToThreeAttempts(t *testing.T) {
 }
 
 func TestRunRetriesNetworkErrorsUpToThreeAttempts(t *testing.T) {
-	flaky := &countdown{n: 2}
+	flaky := &failuresThenSuccess{n: 2}
 	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/reset-twice":
@@ -109,7 +109,7 @@ func TestRunRetriesNetworkErrorsUpToThreeAttempts(t *testing.T) {
 				dropConnection(w)
 				return
 			}
-			serveHTML(w, "<p>third time</p>")
+			writeSyntheticHTML(w, "<p>third time</p>")
 		case "/always-reset":
 			dropConnection(w)
 		}
@@ -124,11 +124,11 @@ func TestRunRetriesNetworkErrorsUpToThreeAttempts(t *testing.T) {
 	if want := (fetch.RunSummary{Listed: 3, Held: 1, Failed: 2}); summary != want {
 		t.Fatalf("summary = %+v, want %+v", summary, want)
 	}
-	if page := rowFor(t, st, site.address("/reset-twice")); page.State != store.StateOK || page.Attempts != 3 {
+	if page := ledgerRowOf(t, st, site.address("/reset-twice")); page.State != store.StateOK || page.Attempts != 3 {
 		t.Errorf("/reset-twice: row = %+v", page)
 	}
 	for _, address := range []string{site.address("/always-reset"), vanishedAddress} {
-		page := rowFor(t, st, address)
+		page := ledgerRowOf(t, st, address)
 		if page.State != store.StateFailed || page.Attempts != 3 || page.HTTPStatus != 0 || page.LastError == "" {
 			t.Errorf("%s: row = %+v, want failed after three attempts with an error and no status", address, page)
 		}
@@ -167,11 +167,11 @@ func TestRunRefusesABodyOverTheLimitAndStoresNothingForIt(t *testing.T) {
 	if want := (fetch.RunSummary{Listed: 3, Held: 1, Failed: 2}); summary != want {
 		t.Fatalf("summary = %+v, want %+v", summary, want)
 	}
-	if page := rowFor(t, st, site.address("/at-the-limit")); page.State != store.StateOK || page.SizeBytes != limit {
+	if page := ledgerRowOf(t, st, site.address("/at-the-limit")); page.State != store.StateOK || page.SizeBytes != limit {
 		t.Errorf("a body of exactly the limit: row = %+v", page)
 	}
 	for _, uri := range []string{"/declared-over", "/streamed-over"} {
-		page := rowFor(t, st, site.address(uri))
+		page := ledgerRowOf(t, st, site.address(uri))
 		if page.State != store.StateFailed || page.Attempts != 1 || !strings.Contains(page.LastError, "larger than") {
 			t.Errorf("%s: row = %+v, want failed after one attempt, naming the limit", uri, page)
 		}
@@ -193,7 +193,7 @@ func TestRunGivesUpOnARequestThatOutlastsTheTimeout(t *testing.T) {
 			}
 			return
 		}
-		serveHTML(w, "<p>quick</p>")
+		writeSyntheticHTML(w, "<p>quick</p>")
 	})
 	st, _ := openFreshStore(t)
 
@@ -205,7 +205,7 @@ func TestRunGivesUpOnARequestThatOutlastsTheTimeout(t *testing.T) {
 	if want := (fetch.RunSummary{Listed: 2, Held: 1, Failed: 1}); summary != want {
 		t.Fatalf("summary = %+v, want %+v", summary, want)
 	}
-	if page := rowFor(t, st, site.address("/slow")); page.State != store.StateFailed || page.Attempts != 3 {
+	if page := ledgerRowOf(t, st, site.address("/slow")); page.State != store.StateFailed || page.Attempts != 3 {
 		t.Errorf("/slow: row = %+v, want failed after three timed-out attempts", page)
 	}
 	if elapsed := time.Since(started); elapsed > 4*time.Second {

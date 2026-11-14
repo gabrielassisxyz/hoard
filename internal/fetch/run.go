@@ -74,7 +74,7 @@ func Run(ctx context.Context, cfg RunConfig) (RunSummary, error) {
 	if err := cfg.Store.AddPending(cfg.Addresses); err != nil {
 		return RunSummary{}, err
 	}
-	eng := newEngine(cfg)
+	eng := newFetchScheduler(cfg)
 	defer eng.client.CloseIdleConnections()
 	if err := eng.enqueuePending(); err != nil {
 		return RunSummary{}, err
@@ -92,17 +92,17 @@ func (c RunConfig) resolved() (RunConfig, error) {
 		c.Rate < 0 || math.IsNaN(c.Rate) || math.IsInf(c.Rate, 0) {
 		return c, errors.New("fetch: workers, rate, timeout and limits cannot be negative")
 	}
-	c.Addresses = distinct(c.Addresses)
-	c.Workers = orDefault(c.Workers, DefaultWorkers)
-	c.Rate = orDefault(c.Rate, DefaultRate)
-	c.Timeout = orDefault(c.Timeout, DefaultTimeout)
-	c.UserAgent = orDefault(c.UserAgent, DefaultUserAgent)
-	c.MaxBodyBytes = orDefault(c.MaxBodyBytes, defaultMaxBodyBytes)
-	c.RefusalPause = orDefault(c.RefusalPause, defaultRefusalPause)
+	c.Addresses = listedOnce(c.Addresses)
+	c.Workers = zeroToDefault(c.Workers, DefaultWorkers)
+	c.Rate = zeroToDefault(c.Rate, DefaultRate)
+	c.Timeout = zeroToDefault(c.Timeout, DefaultTimeout)
+	c.UserAgent = zeroToDefault(c.UserAgent, DefaultUserAgent)
+	c.MaxBodyBytes = zeroToDefault(c.MaxBodyBytes, defaultMaxBodyBytes)
+	c.RefusalPause = zeroToDefault(c.RefusalPause, defaultRefusalPause)
 	return c, nil
 }
 
-func orDefault[T comparable](value, fallback T) T {
+func zeroToDefault[T comparable](value, fallback T) T {
 	var zero T
 	if value == zero {
 		return fallback
@@ -110,9 +110,9 @@ func orDefault[T comparable](value, fallback T) T {
 	return value
 }
 
-// distinct keeps the first occurrence of each address, so that "every listed address has
+// listedOnce keeps the first occurrence of each address, so that "every listed address has
 // exactly one row" and "is requested once" hold however the list was assembled.
-func distinct(addresses []string) []string {
+func listedOnce(addresses []string) []string {
 	seen := make(map[string]struct{}, len(addresses))
 	kept := make([]string, 0, len(addresses))
 	for _, address := range addresses {
@@ -127,7 +127,7 @@ func distinct(addresses []string) []string {
 
 // enqueuePending turns every address the ledger leaves open into a job on its host's
 // queue, and settles at once the ones that cannot be requested at all.
-func (e *engine) enqueuePending() error {
+func (e *fetchScheduler) enqueuePending() error {
 	for _, address := range e.cfg.Addresses {
 		page, found, err := e.cfg.Store.Page(address)
 		if err != nil {
@@ -161,7 +161,7 @@ func parseFetchableAddress(address string) (*url.URL, string) {
 	return parsed, ""
 }
 
-func (e *engine) hostFor(parsed *url.URL) *hostQueue {
+func (e *fetchScheduler) hostFor(parsed *url.URL) *hostQueue {
 	key := hostKey(parsed)
 	if host, ok := e.hostByKey[key]; ok {
 		return host
@@ -172,7 +172,7 @@ func (e *engine) hostFor(parsed *url.URL) *hostQueue {
 	return host
 }
 
-func (e *engine) summarize() (RunSummary, error) {
+func (e *fetchScheduler) summarize() (RunSummary, error) {
 	summary := RunSummary{Listed: len(e.cfg.Addresses)}
 	for _, address := range e.cfg.Addresses {
 		page, found, err := e.cfg.Store.Page(address)

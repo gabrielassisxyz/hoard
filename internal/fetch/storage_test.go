@@ -15,12 +15,12 @@ import (
 func TestRunStoresEveryBodyRawAndContentAddressed(t *testing.T) {
 	sent := map[string]string{}
 	for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
-		sent["/page/"+name] = syntheticPage("page " + name)
+		sent["/page/"+name] = syntheticPageBody("page " + name)
 	}
 	sent["/same/one"] = "<p>identical bytes</p>"
 	sent["/same/two"] = "<p>identical bytes</p>"
 	sent["/empty"] = ""
-	gzipped := syntheticPage("served compressed on the wire")
+	gzipped := syntheticPageBody("served compressed on the wire")
 	sent["/gzip"] = gzipped
 
 	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
@@ -38,7 +38,7 @@ func TestRunStoresEveryBodyRawAndContentAddressed(t *testing.T) {
 			w.Write(wire.Bytes())
 			return
 		}
-		serveHTML(w, sent[r.URL.Path])
+		writeSyntheticHTML(w, sent[r.URL.Path])
 	})
 	var requestURIs []string
 	for uri := range sent {
@@ -79,8 +79,8 @@ func TestRunStoresEveryBodyRawAndContentAddressed(t *testing.T) {
 		if !bytes.Equal(got, want) {
 			t.Errorf("%s: the file decompresses to %q, the server sent %q", uri, got, want)
 		}
-		if sha256HexOf(got) != page.SHA256 {
-			t.Errorf("%s: the decompressed bytes hash to %s, not to the file name %s", uri, sha256HexOf(got), page.SHA256)
+		if hexSHA256OfBytes(got) != page.SHA256 {
+			t.Errorf("%s: the decompressed bytes hash to %s, not to the file name %s", uri, hexSHA256OfBytes(got), page.SHA256)
 		}
 		if page.SizeBytes != int64(len(want)) {
 			t.Errorf("%s: size = %d, want %d", uri, page.SizeBytes, len(want))
@@ -94,7 +94,7 @@ func TestRunStoresEveryBodyRawAndContentAddressed(t *testing.T) {
 
 func TestSecondRunOverTheSameListAndStoreMakesNoRequests(t *testing.T) {
 	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
-		serveHTML(w, syntheticPage(r.URL.Path))
+		writeSyntheticHTML(w, syntheticPageBody(r.URL.Path))
 	})
 	addresses := site.addresses("/1", "/2", "/3", "/4", "/5")
 	dir := t.TempDir()
@@ -134,7 +134,7 @@ func TestSecondRunOverTheSameListAndStoreMakesNoRequests(t *testing.T) {
 
 func TestRunRecordsBothAddressesOfARedirect(t *testing.T) {
 	landing := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
-		serveHTML(w, syntheticPage("the landing page"))
+		writeSyntheticHTML(w, syntheticPageBody("the landing page"))
 	})
 	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -143,7 +143,7 @@ func TestRunRecordsBothAddressesOfARedirect(t *testing.T) {
 		case "/hop":
 			http.Redirect(w, r, landing.address("/landing"), http.StatusFound)
 		default:
-			serveHTML(w, syntheticPage("the page that moved"))
+			writeSyntheticHTML(w, syntheticPageBody("the page that moved"))
 		}
 	})
 	st, dir := openFreshStore(t)
@@ -156,7 +156,7 @@ func TestRunRecordsBothAddressesOfARedirect(t *testing.T) {
 		site.address("/old"): site.address("/moved/new"),
 		site.address("/hop"): landing.address("/landing"),
 	} {
-		page := rowFor(t, st, requested)
+		page := ledgerRowOf(t, st, requested)
 		if page.State != store.StateOK || page.Attempts != 1 {
 			t.Errorf("%s: row = %+v", requested, page)
 		}
@@ -181,7 +181,7 @@ func TestRunIntroducesItselfWithTheConfiguredUserAgent(t *testing.T) {
 	for name, want := range cases {
 		t.Run(name, func(t *testing.T) {
 			site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
-				serveHTML(w, "<p>hi</p>")
+				writeSyntheticHTML(w, "<p>hi</p>")
 			})
 			st, _ := openFreshStore(t)
 			runFetchOver(t, st, site.addresses("/a", "/b"), func(cfg *fetch.RunConfig) {
@@ -203,7 +203,7 @@ func TestRunIntroducesItselfWithTheConfiguredUserAgent(t *testing.T) {
 
 func TestRunSettlesAddressesItCannotRequestWithoutRequestingThem(t *testing.T) {
 	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
-		serveHTML(w, "<p>fine</p>")
+		writeSyntheticHTML(w, "<p>fine</p>")
 	})
 	unrequestable := []string{"not an address", "ftp://files.test/archive", "http:///no-host", "/relative/path"}
 	st, _ := openFreshStore(t)
@@ -216,7 +216,7 @@ func TestRunSettlesAddressesItCannotRequestWithoutRequestingThem(t *testing.T) {
 		t.Fatalf("%d requests, want only the one for the fetchable address", got)
 	}
 	for _, address := range unrequestable {
-		page := rowFor(t, st, address)
+		page := ledgerRowOf(t, st, address)
 		if page.State != store.StateFailed || page.Attempts != 0 || !strings.Contains(page.LastError, "invalid address") {
 			t.Errorf("%q: row = %+v", address, page)
 		}
@@ -225,7 +225,7 @@ func TestRunSettlesAddressesItCannotRequestWithoutRequestingThem(t *testing.T) {
 
 func TestRunRequestsAnAddressListedTwiceOnce(t *testing.T) {
 	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
-		serveHTML(w, "<p>once</p>")
+		writeSyntheticHTML(w, "<p>once</p>")
 	})
 	st, _ := openFreshStore(t)
 	address := site.address("/dup")
@@ -244,7 +244,7 @@ func TestRunRequestsAnAddressListedTwiceOnce(t *testing.T) {
 
 func TestRunPicksUpWhatAnInterruptedRunLeftPending(t *testing.T) {
 	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
-		serveHTML(w, "<p>"+r.URL.Path+"</p>")
+		writeSyntheticHTML(w, "<p>"+r.URL.Path+"</p>")
 	})
 	st, dir := openFreshStore(t)
 	addresses := site.addresses("/crashed-after-writing", "/tried-once", "/never-started")
@@ -267,10 +267,10 @@ func TestRunPicksUpWhatAnInterruptedRunLeftPending(t *testing.T) {
 	if got := site.requestCount(); got != 3 {
 		t.Fatalf("%d requests, want all three pending addresses fetched", got)
 	}
-	if page := rowFor(t, st, addresses[0]); page.SHA256 != orphan.SHA256 || page.Attempts != 1 {
+	if page := ledgerRowOf(t, st, addresses[0]); page.SHA256 != orphan.SHA256 || page.Attempts != 1 {
 		t.Errorf("row for the orphaned body = %+v", page)
 	}
-	if page := rowFor(t, st, addresses[1]); page.Attempts != 2 || page.State != store.StateOK {
+	if page := ledgerRowOf(t, st, addresses[1]); page.Attempts != 2 || page.State != store.StateOK {
 		t.Errorf("row that had one attempt before = %+v, want ok with two in all", page)
 	}
 	if files := bodyFilesUnder(t, dir); len(files) != 3 {

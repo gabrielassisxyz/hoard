@@ -38,7 +38,7 @@ const maxDrainedErrorBodyBytes = 64 << 10
 // attempt asks for one address once and says what came of it. It never touches the
 // ledger or a host's state: those belong to the scheduler, so a request in flight cannot
 // race with the decision about the one before it.
-func (e *engine) attempt(ctx context.Context, job *pageJob) attemptResult {
+func (e *fetchScheduler) attempt(ctx context.Context, job *pageJob) attemptResult {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, job.address, nil)
 	if err != nil {
 		return attemptResult{job: job, kind: attemptFinal, outcome: store.Outcome{Err: err.Error()}}
@@ -74,7 +74,7 @@ func (e *engine) attempt(ctx context.Context, job *pageJob) attemptResult {
 
 // keepBody reads the answer to the end, within the size limit, and stores it. The body
 // is what the transport hands over after its own decoding, byte for byte.
-func (e *engine) keepBody(ctx context.Context, resp *http.Response, result attemptResult) attemptResult {
+func (e *fetchScheduler) keepBody(ctx context.Context, resp *http.Response, result attemptResult) attemptResult {
 	limit := e.cfg.MaxBodyBytes
 	if resp.ContentLength > limit {
 		return refuseOversizedBody(result, limit)

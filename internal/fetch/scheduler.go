@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// engine is the scheduler. One goroutine runs loop and owns every host's queue, pause and
+// fetchScheduler is the scheduler. One goroutine runs loop and owns every host's queue, pause and
 // limiter, so the decisions need no locks; the requests themselves run in goroutines of
 // their own and report back through results.
 //
@@ -15,7 +15,7 @@ import (
 // limiter has a token. Deciding that before starting, instead of letting a worker block on
 // the limiter, is what keeps one slow or refusing host from holding every worker while
 // other hosts wait.
-type engine struct {
+type fetchScheduler struct {
 	cfg       RunConfig
 	client    *http.Client
 	hosts     []*hostQueue
@@ -29,10 +29,10 @@ type engine struct {
 	requests  sync.WaitGroup
 }
 
-func newEngine(cfg RunConfig) *engine {
+func newFetchScheduler(cfg RunConfig) *fetchScheduler {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.MaxIdleConnsPerHost = cfg.Workers
-	return &engine{
+	return &fetchScheduler{
 		cfg:       cfg,
 		client:    &http.Client{Timeout: cfg.Timeout, Transport: transport},
 		hostByKey: make(map[string]*hostQueue),
@@ -42,7 +42,7 @@ func newEngine(cfg RunConfig) *engine {
 	}
 }
 
-func (e *engine) loop(ctx context.Context) error {
+func (e *fetchScheduler) loop(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	interrupted := ctx.Done()
@@ -85,7 +85,7 @@ func (e *engine) loop(ctx context.Context) error {
 // startReadyJobs starts everything that can start now and returns the moment something
 // next may become startable, or the zero time when only a finished request can change
 // anything.
-func (e *engine) startReadyJobs(ctx context.Context) time.Time {
+func (e *fetchScheduler) startReadyJobs(ctx context.Context) time.Time {
 	for e.inFlight < e.cfg.Workers && e.startOneReadyJob(ctx) {
 	}
 	if e.inFlight >= e.cfg.Workers {
@@ -94,7 +94,7 @@ func (e *engine) startReadyJobs(ctx context.Context) time.Time {
 	return e.earliestReadiness()
 }
 
-func (e *engine) startOneReadyJob(ctx context.Context) bool {
+func (e *fetchScheduler) startOneReadyJob(ctx context.Context) bool {
 	now := time.Now()
 	for i := range e.hosts {
 		position := (e.cursor + i) % len(e.hosts)
@@ -109,7 +109,7 @@ func (e *engine) startOneReadyJob(ctx context.Context) bool {
 	return false
 }
 
-func (e *engine) earliestReadiness() time.Time {
+func (e *fetchScheduler) earliestReadiness() time.Time {
 	now := time.Now()
 	var earliest time.Time
 	for _, host := range e.hosts {
@@ -123,7 +123,7 @@ func (e *engine) earliestReadiness() time.Time {
 	return earliest
 }
 
-func (e *engine) start(ctx context.Context, job *pageJob) {
+func (e *fetchScheduler) start(ctx context.Context, job *pageJob) {
 	e.inFlight++
 	e.requests.Add(1)
 	go func() {
@@ -134,7 +134,7 @@ func (e *engine) start(ctx context.Context, job *pageJob) {
 
 // settle applies what an attempt learned: the ledger row, the host's pause, and whether
 // the address goes back in line. A non-nil error means the store failed.
-func (e *engine) settle(result attemptResult) error {
+func (e *fetchScheduler) settle(result attemptResult) error {
 	e.inFlight--
 	switch result.kind {
 	case attemptCancelled:
@@ -164,7 +164,7 @@ func (e *engine) settle(result attemptResult) error {
 
 // pauseHost rests a host that refused. The base is what the host asked for, or the default
 // when it named nothing, and it doubles with each refusal in a row.
-func (e *engine) pauseHost(host *hostQueue, result attemptResult) {
+func (e *fetchScheduler) pauseHost(host *hostQueue, result attemptResult) {
 	base := e.cfg.RefusalPause
 	if result.hasRetryAfter {
 		base = result.retryAfter
@@ -176,7 +176,7 @@ func (e *engine) pauseHost(host *hostQueue, result attemptResult) {
 	}
 }
 
-func (e *engine) tryAgainOrGiveUp(job *pageJob, result attemptResult, atFront bool) error {
+func (e *fetchScheduler) tryAgainOrGiveUp(job *pageJob, result attemptResult, atFront bool) error {
 	if job.attempts >= maxAttemptsPerRun {
 		e.remaining--
 		return e.cfg.Store.MarkFailed(job.address, result.outcome)

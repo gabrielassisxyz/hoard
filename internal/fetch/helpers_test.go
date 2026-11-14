@@ -109,21 +109,22 @@ func (s *recordingSite) addresses(requestURIs ...string) []string {
 	return out
 }
 
-// countdown answers the first n requests with failing and every later one with succeeding.
-type countdown struct {
+// failuresThenSuccess lets a handler fail its first n requests and succeed from then on:
+// each call to stillFailing is one request, and says which of the two this one is.
+type failuresThenSuccess struct {
 	mu   sync.Mutex
 	seen int
 	n    int
 }
 
-func (c *countdown) stillFailing() bool {
+func (c *failuresThenSuccess) stillFailing() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.seen++
 	return c.seen <= c.n
 }
 
-func serveHTML(w http.ResponseWriter, body string) {
+func writeSyntheticHTML(w http.ResponseWriter, body string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(body))
 }
@@ -135,7 +136,7 @@ func dropConnection(w http.ResponseWriter) {
 	}
 }
 
-func syntheticPage(label string) string {
+func syntheticPageBody(label string) string {
 	return "<!doctype html>\r\n<title>" + label + "</title>\r\n<p>caf\xc3\xa9 \xff  </p>\n  "
 }
 
@@ -172,7 +173,7 @@ func runFetchOver(t *testing.T, st *store.Store, addresses []string, tweaks ...f
 	return summary
 }
 
-func rowFor(t *testing.T, st *store.Store, address string) store.Page {
+func ledgerRowOf(t *testing.T, st *store.Store, address string) store.Page {
 	t.Helper()
 	page, found, err := st.Page(address)
 	if err != nil || !found {
@@ -206,7 +207,7 @@ func decompressedBodyFile(t *testing.T, path string) []byte {
 	return plain
 }
 
-func sha256HexOf(b []byte) string {
+func hexSHA256OfBytes(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }

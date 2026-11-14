@@ -34,7 +34,7 @@ func TestRunNeverHasMoreRequestsInFlightThanWorkers(t *testing.T) {
 			site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
 				// Long enough that requests overlap whenever the scheduler lets them.
 				time.Sleep(40 * time.Millisecond)
-				serveHTML(w, "<p>slow</p>")
+				writeSyntheticHTML(w, "<p>slow</p>")
 			})
 			st, _ := openFreshStore(t)
 			addresses := numberedAddresses(site, "w", 12)
@@ -53,7 +53,7 @@ func TestRunNeverHasMoreRequestsInFlightThanWorkers(t *testing.T) {
 
 func TestRunNeverAsksOneHostFasterThanItsRate(t *testing.T) {
 	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
-		serveHTML(w, "<p>quick</p>")
+		writeSyntheticHTML(w, "<p>quick</p>")
 	})
 	st, _ := openFreshStore(t)
 	addresses := numberedAddresses(site, "r", 60)
@@ -87,7 +87,7 @@ func TestRunNeverAsksOneHostFasterThanItsRate(t *testing.T) {
 }
 
 func TestRunPacesEachHostOnItsOwn(t *testing.T) {
-	serve := func(w http.ResponseWriter, r *http.Request) { serveHTML(w, "<p>quick</p>") }
+	serve := func(w http.ResponseWriter, r *http.Request) { writeSyntheticHTML(w, "<p>quick</p>") }
 	first, second := newRecordingSite(t, serve), newRecordingSite(t, serve)
 	st, _ := openFreshStore(t)
 	addresses := append(numberedAddresses(first, "p", 6), numberedAddresses(second, "p", 6)...)
@@ -118,14 +118,14 @@ func TestRunWaitsOutARefusalBeforeAskingTheHostAgain(t *testing.T) {
 	for _, refusal := range []int{http.StatusTooManyRequests, http.StatusForbidden} {
 		t.Run(strconv.Itoa(refusal), func(t *testing.T) {
 			t.Parallel()
-			refusals := &countdown{n: 1}
+			refusals := &failuresThenSuccess{n: 1}
 			site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/limited" && refusals.stillFailing() {
 					w.Header().Set("Retry-After", "1")
 					w.WriteHeader(refusal)
 					return
 				}
-				serveHTML(w, "<p>"+r.URL.Path+"</p>")
+				writeSyntheticHTML(w, "<p>"+r.URL.Path+"</p>")
 			})
 			st, _ := openFreshStore(t)
 			// One worker keeps the order fixed: the refused address, then a neighbour on the
@@ -137,7 +137,7 @@ func TestRunWaitsOutARefusalBeforeAskingTheHostAgain(t *testing.T) {
 			if !summary.Complete() {
 				t.Fatalf("summary = %v", summary)
 			}
-			if page := rowFor(t, st, site.address("/limited")); page.State != store.StateOK || page.Attempts != 2 {
+			if page := ledgerRowOf(t, st, site.address("/limited")); page.State != store.StateOK || page.Attempts != 2 {
 				t.Errorf("refused address: row = %+v, want ok with two attempts", page)
 			}
 			limited, neighbour := site.arrivalTimes("/limited"), site.arrivalTimes("/neighbour")
@@ -156,14 +156,14 @@ func TestRunWaitsOutARefusalBeforeAskingTheHostAgain(t *testing.T) {
 
 func TestRunDoublesThePauseOnConsecutiveRefusals(t *testing.T) {
 	t.Parallel()
-	refusals := &countdown{n: 2}
+	refusals := &failuresThenSuccess{n: 2}
 	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
 		if refusals.stillFailing() {
 			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
-		serveHTML(w, "<p>finally</p>")
+		writeSyntheticHTML(w, "<p>finally</p>")
 	})
 	st, _ := openFreshStore(t)
 
@@ -172,7 +172,7 @@ func TestRunDoublesThePauseOnConsecutiveRefusals(t *testing.T) {
 	if !summary.Complete() {
 		t.Fatalf("summary = %v", summary)
 	}
-	if page := rowFor(t, st, site.address("/stubborn")); page.Attempts != 3 {
+	if page := ledgerRowOf(t, st, site.address("/stubborn")); page.Attempts != 3 {
 		t.Errorf("attempts = %d, want 3", page.Attempts)
 	}
 	arrivals := site.arrivalTimes("/stubborn")
@@ -192,7 +192,7 @@ func TestRunFallsBackToItsOwnPauseWhenARefusalNamesNone(t *testing.T) {
 	for name, retryAfter := range headers {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			refusals := &countdown{n: 1}
+			refusals := &failuresThenSuccess{n: 1}
 			site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
 				if refusals.stillFailing() {
 					if retryAfter != "" {
@@ -201,7 +201,7 @@ func TestRunFallsBackToItsOwnPauseWhenARefusalNamesNone(t *testing.T) {
 					w.WriteHeader(http.StatusTooManyRequests)
 					return
 				}
-				serveHTML(w, "<p>ok</p>")
+				writeSyntheticHTML(w, "<p>ok</p>")
 			})
 			st, _ := openFreshStore(t)
 
@@ -225,17 +225,17 @@ func TestRunFallsBackToItsOwnPauseWhenARefusalNamesNone(t *testing.T) {
 
 func TestRunDoesNotDelayAnotherHostBehindARefusal(t *testing.T) {
 	t.Parallel()
-	refusals := &countdown{n: 1}
+	refusals := &failuresThenSuccess{n: 1}
 	refusing := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
 		if refusals.stillFailing() {
 			w.Header().Set("Retry-After", "2")
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
-		serveHTML(w, "<p>eventually</p>")
+		writeSyntheticHTML(w, "<p>eventually</p>")
 	})
 	bystander := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
-		serveHTML(w, "<p>never refused</p>")
+		writeSyntheticHTML(w, "<p>never refused</p>")
 	})
 	st, _ := openFreshStore(t)
 	// The refusing host is listed first and a single worker serves the list, so every
@@ -268,7 +268,7 @@ func TestRunStopsCleanlyWhenInterrupted(t *testing.T) {
 			<-r.Context().Done()
 			return
 		}
-		serveHTML(w, "<p>not reached</p>")
+		writeSyntheticHTML(w, "<p>not reached</p>")
 	})
 	st, _ := openFreshStore(t)
 	addresses := site.addresses("/hang", "/after-1", "/after-2")
@@ -304,7 +304,7 @@ func TestRunStopsCleanlyWhenInterrupted(t *testing.T) {
 		t.Errorf("%d requests, want only the one that was in flight", got)
 	}
 	for _, address := range addresses {
-		if page := rowFor(t, st, address); page.State != store.StatePending {
+		if page := ledgerRowOf(t, st, address); page.State != store.StatePending {
 			t.Errorf("%s is %s, want it left pending for the next run", address, page.State)
 		}
 	}

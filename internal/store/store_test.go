@@ -26,7 +26,7 @@ func openScratchStore(t *testing.T) *Store {
 	return s
 }
 
-func sha256HexOf(b []byte) string {
+func hexSHA256OfBytes(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
@@ -93,7 +93,7 @@ func TestPutBodyRoundTripsThroughCompression(t *testing.T) {
 			if err != nil {
 				t.Fatalf("PutBody: %v", err)
 			}
-			if want := sha256HexOf(body); ref.SHA256 != want {
+			if want := hexSHA256OfBytes(body); ref.SHA256 != want {
 				t.Fatalf("name = %s, want the SHA-256 of the body, %s", ref.SHA256, want)
 			}
 			if ref.Size != int64(len(body)) {
@@ -151,7 +151,7 @@ func TestPutBodyLeavesNoTemporaryFileBehind(t *testing.T) {
 func TestPutBodyCleansUpWhenItCannotRenameIntoPlace(t *testing.T) {
 	s := openScratchStore(t)
 	body := []byte("a body that cannot land")
-	blocker := s.bodyPath(sha256HexOf(body))
+	blocker := s.bodyPath(hexSHA256OfBytes(body))
 	if err := os.MkdirAll(blocker, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestMarkOKNeedsAStoredBodyWithItsHashAndSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	const address = "https://site.test/a"
-	absent := BodyRef{SHA256: sha256HexOf([]byte("never stored")), Size: 12}
+	absent := BodyRef{SHA256: hexSHA256OfBytes([]byte("never stored")), Size: 12}
 	ref, err := s.PutBody([]byte("<p>held</p>"))
 	if err != nil {
 		t.Fatal(err)

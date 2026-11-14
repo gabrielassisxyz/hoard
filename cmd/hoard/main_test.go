@@ -150,7 +150,7 @@ func writeListFile(t *testing.T, lines ...string) string {
 	return path
 }
 
-func pageServer(w http.ResponseWriter, r *http.Request) {
+func syntheticPageServer(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, "<p>%s</p>", r.URL.Path)
 }
@@ -167,7 +167,7 @@ func TestBinaryIsBuiltWithoutCGO(t *testing.T) {
 }
 
 func TestBinaryExitsZeroWhenEveryAddressIsHeld(t *testing.T) {
-	site := newCLISite(t, pageServer)
+	site := newCLISite(t, syntheticPageServer)
 	store := filepath.Join(t.TempDir(), "store")
 	list := writeListFile(t, "# three pages", site.URL+"/a", "", site.URL+"/b", "  "+site.URL+"/c  ")
 
@@ -196,7 +196,7 @@ func TestBinaryExitsOneWhenAnAddressCouldNotBeFetched(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		pageServer(w, r)
+		syntheticPageServer(w, r)
 	})
 	store := filepath.Join(t.TempDir(), "store")
 	list := writeListFile(t, site.URL+"/present", site.URL+"/missing")
@@ -283,7 +283,7 @@ func TestBinaryHelpIsNotAnError(t *testing.T) {
 
 func TestBinaryPassesItsFlagsToTheFetch(t *testing.T) {
 	t.Run("user agent", func(t *testing.T) {
-		site := newCLISite(t, pageServer)
+		site := newCLISite(t, syntheticPageServer)
 		list := writeListFile(t, site.URL+"/a")
 		for _, c := range []struct {
 			flags []string
@@ -309,7 +309,7 @@ func TestBinaryPassesItsFlagsToTheFetch(t *testing.T) {
 	t.Run("workers", func(t *testing.T) {
 		site := newCLISite(t, func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(50 * time.Millisecond)
-			pageServer(w, r)
+			syntheticPageServer(w, r)
 		})
 		var lines []string
 		for i := range 8 {
@@ -326,7 +326,7 @@ func TestBinaryPassesItsFlagsToTheFetch(t *testing.T) {
 	})
 
 	t.Run("rate", func(t *testing.T) {
-		site := newCLISite(t, pageServer)
+		site := newCLISite(t, syntheticPageServer)
 		var lines []string
 		for i := range 6 {
 			lines = append(lines, fmt.Sprintf("%s/r%d", site.URL, i))
@@ -349,7 +349,7 @@ func TestBinaryPassesItsFlagsToTheFetch(t *testing.T) {
 			select {
 			case <-r.Context().Done():
 			case <-time.After(3 * time.Second):
-				pageServer(w, r)
+				syntheticPageServer(w, r)
 			}
 		})
 		store := filepath.Join(t.TempDir(), "store")
