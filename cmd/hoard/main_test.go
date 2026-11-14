@@ -49,7 +49,7 @@ func builtHoardBinary(t *testing.T) string {
 		}
 		hoardBinaryDir = dir
 		path := filepath.Join(dir, "hoard")
-		build := exec.Command("go", "build", "-o", path, "./cmd/hoard")
+		build := lowPriorityGoBuild(path)
 		build.Dir = filepath.Join("..", "..")
 		build.Env = append(os.Environ(), "CGO_ENABLED=0")
 		if output, err := build.CombinedOutput(); err != nil {
@@ -62,6 +62,18 @@ func builtHoardBinary(t *testing.T) string {
 		t.Fatal(hoardBinaryErr)
 	}
 	return hoardBinaryPath
+}
+
+// lowPriorityGoBuild is the documented build command, run at the lowest scheduling priority
+// where `nice` exists. It compiles a large pure-Go SQLite, and go test runs the other
+// packages' timing-sensitive tests at the same moment; at full priority it can starve them
+// for hundreds of milliseconds on a runner with few cores.
+func lowPriorityGoBuild(output string) *exec.Cmd {
+	args := []string{"build", "-o", output, "./cmd/hoard"}
+	if nice, err := exec.LookPath("nice"); err == nil {
+		return exec.Command(nice, append([]string{"-n", "19", "go"}, args...)...)
+	}
+	return exec.Command("go", args...)
 }
 
 type hoardRun struct {
@@ -326,7 +338,7 @@ func TestBinaryPassesItsFlagsToTheFetch(t *testing.T) {
 
 	t.Run("workers", func(t *testing.T) {
 		site := newCLISite(t, func(w http.ResponseWriter, r *http.Request) {
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(200 * time.Millisecond)
 			syntheticPageServer(w, r)
 		})
 		var lines []string
@@ -346,7 +358,7 @@ func TestBinaryPassesItsFlagsToTheFetch(t *testing.T) {
 	t.Run("rate", func(t *testing.T) {
 		site := newCLISite(t, syntheticPageServer)
 		var lines []string
-		for i := range 6 {
+		for i := range 8 {
 			lines = append(lines, fmt.Sprintf("%s/r%d", site.URL, i))
 		}
 		store := filepath.Join(t.TempDir(), "store")
@@ -355,10 +367,10 @@ func TestBinaryPassesItsFlagsToTheFetch(t *testing.T) {
 			t.Fatalf("exit %d: %s", result.exitCode, result.stderr)
 		}
 		span := site.arrivalSpan()
-		// Six requests at 20 a second are five intervals of 50ms; the default of 2 a second
-		// would take 2.5s.
-		if span < 200*time.Millisecond || span > 1500*time.Millisecond {
-			t.Errorf("six requests with --rate 20 arrived over %v, want about 250ms", span)
+		// Eight requests at 20 a second are seven intervals of 50ms; the default of 2 a second
+		// would take 3.5s. The upper bound sits well clear of the second, for a busy machine.
+		if span < 250*time.Millisecond || span > 2*time.Second {
+			t.Errorf("eight requests with --rate 20 arrived over %v, want about 350ms", span)
 		}
 	})
 

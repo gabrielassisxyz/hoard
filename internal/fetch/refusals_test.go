@@ -53,7 +53,7 @@ func TestRunStartsTheStreakOverOnceTheHostAnswersNormally(t *testing.T) {
 	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
 		refusal := map[string]*failuresThenSuccess{"/a": &aRefused, "/b": &bRefused}[r.URL.Path]
 		if refusal != nil && refusal.stillFailing() {
-			w.Header().Set("Retry-After", "1")
+			w.Header().Set("Retry-After", "3")
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
@@ -72,9 +72,10 @@ func TestRunStartsTheStreakOverOnceTheHostAnswersNormally(t *testing.T) {
 		t.Fatalf("/b was requested %d times, want 2", len(b))
 	}
 	// Had the 200 for /a not ended the streak, this second refusal would count as the second
-	// in a row and rest the host for 2s.
-	if gap := b[1].Sub(b[0]); gap < time.Second || gap > pauseWithSlack(time.Second) {
-		t.Errorf("after a refusal that followed a normal answer the host was asked again after %v, want 1s", gap)
+	// in a row and rest the host for 6s, not 3. The two are told apart by the upper bound, so the
+	// pause is long enough that a stall of two seconds cannot close the gap.
+	if gap := b[1].Sub(b[0]); gap < 3*time.Second || gap > 5*time.Second {
+		t.Errorf("after a refusal that followed a normal answer the host was asked again after %v, want 3s", gap)
 	}
 }
 

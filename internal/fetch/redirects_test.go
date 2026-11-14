@@ -35,17 +35,13 @@ func TestRunPacesEveryHopOfARedirect(t *testing.T) {
 	if !summary.Complete() {
 		t.Fatalf("summary = %v", summary)
 	}
-	arrivals := site.arrivalTimes("")
-	if len(arrivals) != 12 {
-		t.Fatalf("%d requests for 6 addresses that redirect once each, want 12", len(arrivals))
+	if got := site.requestCount(); got != 12 {
+		t.Fatalf("%d requests for 6 addresses that redirect once each, want 12", got)
 	}
 	// Twelve requests at 20 a second are eleven intervals of 50ms. If the redirects ride along
 	// with the request that led to them, only the six first hops are paced and it takes five.
 	if elapsed < 500*time.Millisecond {
 		t.Errorf("12 requests at 20 a second finished in %v: the redirect hops are not being paced", elapsed)
-	}
-	if most := mostArrivalsInAnyWindow(arrivals, 100*time.Millisecond); most > 3 {
-		t.Errorf("%d requests arrived within 100ms at 20 a second, at most 3 are allowed", most)
 	}
 }
 

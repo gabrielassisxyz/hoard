@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gabrielassisxyz/hoard/internal/store"
 )
 
 func TestParseListKeepsAddressesAndSkipsBlankLinesAndComments(t *testing.T) {
@@ -151,6 +153,79 @@ func TestEachHostGetsALimiterAtTheStatedRateWithABurstOfOne(t *testing.T) {
 		if got := limiter.Burst(); got != 1 {
 			t.Errorf("limiter burst at %v a second = %d, want 1", rate, got)
 		}
+	}
+}
+
+func schedulerForUnitTest(t *testing.T) *fetchScheduler {
+	t.Helper()
+	cfg, err := RunConfig{Store: &store.Store{}}.resolved()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return newFetchScheduler(cfg)
+}
+
+func TestHostsGetTheirOwnQueueAndLimiterAndSpellingsOfOneShareIt(t *testing.T) {
+	scheduler := schedulerForUnitTest(t)
+	parse := func(address string) *url.URL {
+		parsed, err := url.Parse(address)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return parsed
+	}
+	one, two := scheduler.hostFor(parse("http://one.test/x")), scheduler.hostFor(parse("http://two.test/x"))
+	if one == two {
+		t.Error("two hosts share a queue and with it a pause")
+	}
+	if one.limiter == two.limiter {
+		t.Error("two hosts share a limiter, so one pace is divided between them")
+	}
+	if again := scheduler.hostFor(parse("HTTP://ONE.test:80/y")); again != one {
+		t.Error("two spellings of one host got two queues, which doubles the pace it is asked at")
+	}
+}
+
+func TestRefusalsAreInARowOnlyWhenSentAfterThePreviousOne(t *testing.T) {
+	scheduler := schedulerForUnitTest(t)
+	host := newHostQueue(1000)
+	refused := attemptResult{kind: attemptRefused, retryAfter: time.Second, hasRetryAfter: true}
+	answered := attemptResult{kind: attemptStored, outcome: store.Outcome{HTTPStatus: 200}}
+	pause := func() { time.Sleep(2 * time.Millisecond) }
+	job := func(sentAt time.Time) *pageJob { return &pageJob{host: host, startedAt: sentAt} }
+
+	sentTogether := time.Now()
+	pause()
+	for range 4 {
+		scheduler.learnFromHost(job(sentTogether), refused)
+	}
+	if host.refusals != 1 {
+		t.Fatalf("four requests sent together and refused together made a streak of %d, want 1", host.refusals)
+	}
+
+	pause()
+	sentAfter := time.Now()
+	pause()
+	scheduler.learnFromHost(job(sentAfter), refused)
+	if host.refusals != 2 {
+		t.Fatalf("a request sent after the refusal and refused again made a streak of %d, want 2", host.refusals)
+	}
+
+	pause()
+	scheduler.learnFromHost(job(sentTogether), answered)
+	if host.refusals != 2 {
+		t.Fatalf("an answer to a request sent before the last refusal changed the streak to %d, want it left at 2", host.refusals)
+	}
+
+	pause()
+	sentLater := time.Now()
+	pause()
+	scheduler.learnFromHost(job(sentLater), answered)
+	if host.refusals != 0 {
+		t.Fatalf("an answer to a request sent after the last refusal left the streak at %d, want 0", host.refusals)
+	}
+	if !host.pausedUntil.After(time.Now()) {
+		t.Error("the refusals did not rest the host")
 	}
 }
 

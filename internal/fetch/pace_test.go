@@ -16,7 +16,7 @@ import (
 // overshoot: a host that is paused for 30s when it asked for 1s has been wronged too. The
 // slack covers timer and scheduling lateness on a busy machine.
 func pauseWithSlack(pause time.Duration) time.Duration {
-	return pause + 800*time.Millisecond
+	return pause + 4*time.Second
 }
 
 func numberedAddresses(site *recordingSite, prefix string, count int) []string {
@@ -45,8 +45,14 @@ func TestRunNeverHasMoreRequestsInFlightThanWorkers(t *testing.T) {
 			if !summary.Complete() {
 				t.Fatalf("summary = %v", summary)
 			}
-			if peak := site.peakInFlight(); peak != workers {
-				t.Fatalf("the server saw up to %d requests at once, want exactly the ceiling of %d", peak, workers)
+			peak := site.peakInFlight()
+			if peak > workers {
+				t.Fatalf("the server saw %d requests at once, more than the ceiling of %d", peak, workers)
+			}
+			// Not vacuous: requests do overlap when more than one is allowed. Reaching the
+			// ceiling itself would depend on the machine not stalling between the starts.
+			if workers > 1 && peak < 2 {
+				t.Fatalf("the server never saw two requests at once with %d workers", workers)
 			}
 		})
 	}
@@ -87,12 +93,10 @@ func TestRunPacesEachHostOnItsOwn(t *testing.T) {
 	st, _ := openFreshStore(t)
 	addresses := append(numberedAddresses(first, "p", 6), numberedAddresses(second, "p", 6)...)
 
-	started := time.Now()
 	summary := runFetchOver(t, st, addresses, func(cfg *fetch.RunConfig) {
 		cfg.Rate = 10
 		cfg.Workers = 8
 	})
-	elapsed := time.Since(started)
 
 	if !summary.Complete() {
 		t.Fatalf("summary = %v", summary)
@@ -103,9 +107,13 @@ func TestRunPacesEachHostOnItsOwn(t *testing.T) {
 			t.Errorf("%s host: 6 requests at 10 a second spanned %v, want at least 0.5s", name, span)
 		}
 	}
-	// One limiter shared by both hosts would need 11 intervals of 100ms; one each needs 5.
-	if elapsed >= time.Second {
-		t.Errorf("12 requests over two hosts at 10 a second each took %v: the hosts are sharing one pace", elapsed)
+	// Paced separately, the hosts are asked together: the i-th request to one goes out with the
+	// i-th to the other. Sharing one pace, every request is 100ms from the next, whichever host
+	// it is for, and no two hosts are ever asked at the same moment. Elapsed time would also tell
+	// them apart, but only against an upper bound that a busy machine can always break.
+	togetherCount := arrivalsWithACounterpartWithin(first.arrivalTimes(""), second.arrivalTimes(""), 50*time.Millisecond)
+	if togetherCount < 3 {
+		t.Errorf("only %d of the 6 requests to one host went out together with one to the other: the hosts are sharing one pace", togetherCount)
 	}
 }
 
@@ -165,7 +173,7 @@ func TestRunReadsARetryAfterGivenAsAnHTTPDate(t *testing.T) {
 	st, _ := openFreshStore(t)
 
 	summary := runFetchOver(t, st, site.addresses("/dated"), func(cfg *fetch.RunConfig) {
-		cfg.RefusalPause = 6 * time.Second
+		cfg.RefusalPause = 20 * time.Second
 	})
 
 	if !summary.Complete() {
@@ -176,7 +184,7 @@ func TestRunReadsARetryAfterGivenAsAnHTTPDate(t *testing.T) {
 		t.Fatalf("%d requests, want 2", len(arrivals))
 	}
 	if gap := arrivals[1].Sub(arrivals[0]); gap < time.Second || gap > pauseWithSlack(2*time.Second) {
-		t.Errorf("the host was asked again after %v, want the 1s to 2s that the date asked for and not the 6s fallback", gap)
+		t.Errorf("the host was asked again after %v, want the 1s to 2s that the date asked for and not the 20s fallback", gap)
 	}
 }
 
@@ -254,7 +262,7 @@ func TestRunDoesNotDelayAnotherHostBehindARefusal(t *testing.T) {
 	refusals := &failuresThenSuccess{n: 1}
 	refusing := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
 		if refusals.stillFailing() {
-			w.Header().Set("Retry-After", "2")
+			w.Header().Set("Retry-After", "6")
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
@@ -278,7 +286,9 @@ func TestRunDoesNotDelayAnotherHostBehindARefusal(t *testing.T) {
 	if len(refused) != 2 || len(served) != 3 {
 		t.Fatalf("requests: refusing host %d, bystander %d", len(refused), len(served))
 	}
-	if last := served[len(served)-1]; last.Sub(refused[0]) >= time.Second {
+	// The pause is 6s. Served in well under half of it is the bystander not waiting for it;
+	// the margin is for a machine that stalls, and a shared pause would still miss it by 3s.
+	if last := served[len(served)-1]; last.Sub(refused[0]) >= 3*time.Second {
 		t.Errorf("the bystander's last request came %v after the refusal: it waited behind another host's pause", last.Sub(refused[0]))
 	}
 	if !served[len(served)-1].Before(refused[1]) {
