@@ -82,6 +82,37 @@ func TestRunPacesARedirectHopAgainstTheHostItLeadsTo(t *testing.T) {
 	}
 }
 
+func TestRunDoesNotCountARedirectAgainstTheAttemptsOfAnAddress(t *testing.T) {
+	flaky := &failuresThenSuccess{n: 2}
+	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/start":
+			http.Redirect(w, r, "/flaky", http.StatusFound)
+		case "/flaky":
+			if flaky.stillFailing() {
+				http.Error(w, "try later", http.StatusInternalServerError)
+				return
+			}
+			writeSyntheticHTML(w, "<p>third answer</p>")
+		}
+	})
+	st, _ := openFreshStore(t)
+
+	summary := runFetchOver(t, st, site.addresses("/start"))
+
+	if !summary.Complete() {
+		t.Fatalf("summary = %v: the redirect used up one of the three attempts", summary)
+	}
+	page := ledgerRowOf(t, st, site.address("/start"))
+	if page.State != store.StateOK || page.Attempts != 3 || page.FinalAddress != site.address("/flaky") {
+		t.Errorf("row = %+v, want ok after three answers that were not directions, ending at /flaky", page)
+	}
+	// A retry picks up at the hop that failed; the address that redirected is not asked again.
+	if start, flakyRequests := site.arrivalTimes("/start"), site.arrivalTimes("/flaky"); len(start) != 1 || len(flakyRequests) != 3 {
+		t.Errorf("requests: /start %d, /flaky %d, want 1 and 3", len(start), len(flakyRequests))
+	}
+}
+
 func TestRunGivesUpOnARedirectLoopWithoutRetryingIt(t *testing.T) {
 	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/loop", http.StatusFound)
