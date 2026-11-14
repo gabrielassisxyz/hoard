@@ -157,7 +157,8 @@
   runs; only `pending` ones are fetched. Every attempt, refusals included, counts toward 3
   per address per run.
 - **A host is its host and port**, lower-cased, without the scheme's default port. Each has
-  its own limiter and its own pause after a 429 or 403.
+  its own limiter and its own pause after a 429 or 403. Every hop of a redirect is a request
+  of its own, paced and paused by the host it leads to.
 
 ## What never enters this repository
 

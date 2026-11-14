@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/gabrielassisxyz/hoard/internal/store"
@@ -16,6 +17,7 @@ type attemptKind int
 const (
 	attemptStored    attemptKind = iota // a 2xx whose body is now in the store
 	attemptRefused                      // 429 or 403: the host wants to be left alone for a while
+	attemptRedirect                     // a 3xx that says where to go next, which is a request of its own
 	attemptRetryable                    // a network error or a 5xx: worth asking again
 	attemptFinal                        // any other answer: asking again would not change it
 	attemptCancelled                    // the run was interrupted before the host answered
@@ -28,6 +30,7 @@ type attemptResult struct {
 	outcome       store.Outcome
 	retryAfter    time.Duration
 	hasRetryAfter bool
+	redirectTo    *url.URL
 	storeErr      error
 }
 
@@ -35,11 +38,11 @@ type attemptResult struct {
 // wait.
 const maxDrainedErrorBodyBytes = 64 << 10
 
-// attempt asks for one address once and says what came of it. It never touches the
-// ledger or a host's state: those belong to the scheduler, so a request in flight cannot
-// race with the decision about the one before it.
+// attempt makes the one request that is next for a job and says what came of it. It never
+// touches the ledger or a host's state: those belong to the scheduler, so a request in
+// flight cannot race with the decision about the one before it.
 func (e *fetchScheduler) attempt(ctx context.Context, job *pageJob) attemptResult {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, job.address, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, job.target.String(), nil)
 	if err != nil {
 		return attemptResult{job: job, kind: attemptFinal, outcome: store.Outcome{Err: err.Error()}}
 	}
@@ -56,6 +59,7 @@ func (e *fetchScheduler) attempt(ctx context.Context, job *pageJob) attemptResul
 		FetchedAt:    time.Now(),
 		ContentType:  resp.Header.Get("Content-Type"),
 	}}
+	redirectsTo, redirects := redirectTarget(resp)
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		return e.keepBody(ctx, resp, result)
@@ -64,12 +68,27 @@ func (e *fetchScheduler) attempt(ctx context.Context, job *pageJob) attemptResul
 		result.retryAfter, result.hasRetryAfter = ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
 	case resp.StatusCode >= 500:
 		result.kind = attemptRetryable
+	case redirects:
+		result.kind = attemptRedirect
+		result.redirectTo = redirectsTo
 	default:
 		result.kind = attemptFinal
 	}
 	result.outcome.Err = "HTTP " + resp.Status
 	io.Copy(io.Discard, io.LimitReader(resp.Body, maxDrainedErrorBodyBytes))
 	return result
+}
+
+// redirectTarget is where a redirect that this tool follows points: the statuses browsers
+// and the standard client follow, and only when the answer says where to.
+func redirectTarget(resp *http.Response) (*url.URL, bool) {
+	switch resp.StatusCode {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		target, err := resp.Location()
+		return target, err == nil
+	}
+	return nil, false
 }
 
 // keepBody reads the answer to the end, within the size limit, and stores it. The body

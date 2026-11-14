@@ -21,6 +21,8 @@ const (
 	// Per address, per run, whatever each attempt turned out to be.
 	maxAttemptsPerRun   = 3
 	defaultMaxBodyBytes = 64 << 20
+	// The same as the standard client's own cap, so a redirect loop ends in the same place.
+	maxRedirectsPerAddress = 10
 )
 
 // RunConfig is everything Run needs. Only Store and Addresses are required.
@@ -144,7 +146,7 @@ func (e *fetchScheduler) enqueuePending() error {
 			continue
 		}
 		host := e.hostFor(parsed)
-		host.waiting = append(host.waiting, &pageJob{address: address, host: host})
+		host.waiting = append(host.waiting, &pageJob{address: address, target: parsed, host: host})
 		e.remaining++
 	}
 	return nil

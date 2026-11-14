@@ -11,9 +11,15 @@ import (
 
 // pageJob is one address that still has to be fetched in this run.
 type pageJob struct {
-	address  string
-	host     *hostQueue
-	attempts int // made in this run, whatever their outcome
+	address string   // as listed; the ledger's key
+	target  *url.URL // what the next request asks for: the address, then wherever it was sent
+	host    *hostQueue
+	hops    int // redirects followed so far
+	// attempts made in this run that ended in an answer other than a redirect.
+	attempts int
+	// startedAt is when the request now in flight was sent, which is how a late answer is told
+	// from one given after the host's last refusal.
+	startedAt time.Time
 }
 
 // hostQueue is everything the scheduler knows about one site: the addresses waiting for
@@ -23,9 +29,10 @@ type hostQueue struct {
 	limiter     *rate.Limiter
 	waiting     []*pageJob
 	pausedUntil time.Time
-	// refusals is the length of the current streak of 429 and 403 answers; any other
-	// answer from the host ends the streak.
-	refusals int
+	// refusals is the length of the current streak of 429 and 403 answers to requests sent
+	// one after another; an answer of any other kind to a later request ends the streak.
+	refusals      int
+	lastRefusalAt time.Time
 }
 
 func newHostQueue(requestsPerSecond float64) *hostQueue {

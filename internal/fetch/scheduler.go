@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -33,8 +34,14 @@ func newFetchScheduler(cfg RunConfig) *fetchScheduler {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.MaxIdleConnsPerHost = cfg.Workers
 	return &fetchScheduler{
-		cfg:       cfg,
-		client:    &http.Client{Timeout: cfg.Timeout, Transport: transport},
+		cfg: cfg,
+		client: &http.Client{
+			Timeout:   cfg.Timeout,
+			Transport: transport,
+			// Redirects are followed by the scheduler, one request at a time, so that each hop
+			// is paced and paused like any other request to the host it leads to.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
 		hostByKey: make(map[string]*hostQueue),
 		// Never full: each request in flight sends exactly once, and there are at most
 		// Workers of them.
@@ -71,7 +78,8 @@ func (e *fetchScheduler) loop(ctx context.Context) error {
 			}
 		case <-wake:
 		case <-interrupted:
-			e.stopping = true
+			// Waking the loop is all that is needed: the check at its top sees the cancelled
+			// context and stops.
 			interrupted = nil
 		}
 		if timer != nil {
@@ -124,6 +132,7 @@ func (e *fetchScheduler) earliestReadiness() time.Time {
 }
 
 func (e *fetchScheduler) start(ctx context.Context, job *pageJob) {
+	job.startedAt = time.Now()
 	e.inFlight++
 	e.requests.Add(1)
 	go func() {
@@ -143,10 +152,11 @@ func (e *fetchScheduler) settle(result attemptResult) error {
 		return result.storeErr
 	}
 	job := result.job
-	job.attempts++
-	if result.outcome.HTTPStatus != 0 && result.kind != attemptRefused {
-		job.host.refusals = 0
+	e.learnFromHost(job, result)
+	if result.kind == attemptRedirect {
+		return e.followRedirect(job, result)
 	}
+	job.attempts++
 	switch result.kind {
 	case attemptStored:
 		e.remaining--
@@ -155,25 +165,72 @@ func (e *fetchScheduler) settle(result attemptResult) error {
 		e.remaining--
 		return e.cfg.Store.MarkFailed(job.address, result.outcome)
 	case attemptRefused:
-		e.pauseHost(job.host, result)
 		return e.tryAgainOrGiveUp(job, result, true)
 	default:
 		return e.tryAgainOrGiveUp(job, result, false)
 	}
 }
 
+// learnFromHost applies what an answer says about the host that gave it. A refusal rests the
+// host. An answer of any other kind ends a streak of refusals, but only when the request it
+// answers was sent after the last refusal: a late answer to a request that was already in
+// flight when the host started refusing does not show that it has stopped.
+func (e *fetchScheduler) learnFromHost(job *pageJob, result attemptResult) {
+	host := job.host
+	switch {
+	case result.kind == attemptRefused:
+		e.pauseHost(host, job, result)
+	case result.outcome.HTTPStatus != 0 && job.startedAt.After(host.lastRefusalAt):
+		host.refusals = 0
+	}
+}
+
 // pauseHost rests a host that refused. The base is what the host asked for, or the default
-// when it named nothing, and it doubles with each refusal in a row.
-func (e *fetchScheduler) pauseHost(host *hostQueue, result attemptResult) {
+// when it named nothing, and it doubles with each refusal in a row. A refusal is "in a row"
+// when the request it answers was sent after the previous refusal: requests that were all in
+// flight when the host began refusing are refused together, and that is one refusal, not as
+// many as there were requests.
+func (e *fetchScheduler) pauseHost(host *hostQueue, job *pageJob, result attemptResult) {
 	base := e.cfg.RefusalPause
 	if result.hasRetryAfter {
 		base = result.retryAfter
 	}
-	host.refusals++
-	until := time.Now().Add(refusalPause(base, host.refusals))
-	if until.After(host.pausedUntil) {
+	if job.startedAt.After(host.lastRefusalAt) {
+		host.refusals++
+	}
+	now := time.Now()
+	host.lastRefusalAt = now
+	if until := now.Add(refusalPause(base, host.refusals)); until.After(host.pausedUntil) {
 		host.pausedUntil = until
 	}
+}
+
+// followRedirect sends a job on to where it was redirected. The hop waits in the queue of the
+// host it leads to, behind that host's limiter and pause, so it is paced like any other
+// request. It is not an attempt of its own: an address's attempts are the answers that were
+// not just directions.
+func (e *fetchScheduler) followRedirect(job *pageJob, result attemptResult) error {
+	target := result.redirectTo
+	job.hops++
+	problem := ""
+	switch {
+	case job.hops > maxRedirectsPerAddress:
+		problem = fmt.Sprintf("stopped after %d redirects", maxRedirectsPerAddress)
+	case (target.Scheme != "http" && target.Scheme != "https") || target.Hostname() == "":
+		problem = "redirected to an address that cannot be fetched: " + target.String()
+	}
+	if problem != "" {
+		job.attempts++
+		e.remaining--
+		result.outcome.Err = problem
+		return e.cfg.Store.MarkFailed(job.address, result.outcome)
+	}
+	job.target = target
+	job.host = e.hostFor(target)
+	if !e.stopping {
+		job.host.requeue(job, true)
+	}
+	return nil
 }
 
 func (e *fetchScheduler) tryAgainOrGiveUp(job *pageJob, result attemptResult, atFront bool) error {
