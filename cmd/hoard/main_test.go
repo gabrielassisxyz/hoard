@@ -281,6 +281,24 @@ func TestBinaryHelpIsNotAnError(t *testing.T) {
 	}
 }
 
+func TestBinaryFetchHelpShowsTheDocumentedDefaults(t *testing.T) {
+	result := runHoardBinary(t, "fetch", "-h")
+	if result.exitCode != 0 {
+		t.Fatalf("exit %d", result.exitCode)
+	}
+	for _, want := range []string{
+		"-workers int", "(default 4)",
+		"-rate float", "(default 2)",
+		"-timeout duration", "(default 30s)",
+		"-user-agent string", fetch.DefaultUserAgent,
+		"-store string", "-list string",
+	} {
+		if !strings.Contains(result.stdout+result.stderr, want) {
+			t.Errorf("fetch -h does not mention %q:\n%s%s", want, result.stdout, result.stderr)
+		}
+	}
+}
+
 func TestBinaryPassesItsFlagsToTheFetch(t *testing.T) {
 	t.Run("user agent", func(t *testing.T) {
 		site := newCLISite(t, syntheticPageServer)

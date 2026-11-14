@@ -156,6 +156,37 @@ func TestRunWaitsOutARefusalBeforeAskingTheHostAgain(t *testing.T) {
 	}
 }
 
+func TestRunReadsARetryAfterGivenAsAnHTTPDate(t *testing.T) {
+	t.Parallel()
+	refusals := &failuresThenSuccess{n: 1}
+	site := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
+		if refusals.stillFailing() {
+			// Dates carry whole seconds, so the wait the host actually asks for is between
+			// one and two seconds, depending on where in the second the refusal was sent.
+			w.Header().Set("Retry-After", time.Now().Add(2*time.Second).UTC().Format(http.TimeFormat))
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		writeSyntheticHTML(w, "<p>after the date</p>")
+	})
+	st, _ := openFreshStore(t)
+
+	summary := runFetchOver(t, st, site.addresses("/dated"), func(cfg *fetch.RunConfig) {
+		cfg.RefusalPause = 6 * time.Second
+	})
+
+	if !summary.Complete() {
+		t.Fatalf("summary = %v", summary)
+	}
+	arrivals := site.arrivalTimes("/dated")
+	if len(arrivals) != 2 {
+		t.Fatalf("%d requests, want 2", len(arrivals))
+	}
+	if gap := arrivals[1].Sub(arrivals[0]); gap < time.Second || gap > pauseWithSlack(2*time.Second) {
+		t.Errorf("the host was asked again after %v, want the 1s to 2s that the date asked for and not the 6s fallback", gap)
+	}
+}
+
 func TestRunDoublesThePauseOnConsecutiveRefusals(t *testing.T) {
 	t.Parallel()
 	refusals := &failuresThenSuccess{n: 2}
