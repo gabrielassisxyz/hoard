@@ -178,6 +178,7 @@
 | hurdle | class | gate |
 |---|---|---|
 | `bin/worktree` falls back to `master` when `origin/HEAD` is unset, which a fresh clone can lack; run `git remote set-head origin -a` and check the banner says `main` | tripwire | none yet |
+| A test that asserts an upper bound on elapsed time fails on a loaded CI runner, because `go test` compiles the pure-Go SQLite beside it and can starve a test for hundreds of milliseconds; assert lower bounds, or read the property off the code (a limiter's burst, which host owns which queue) | tripwire | none yet |
 
 **A hurdle promoted to a gate is deleted from this table, not duplicated.** The gate is the
 instruction; a line here restating it only dilutes the ones still unguarded.
