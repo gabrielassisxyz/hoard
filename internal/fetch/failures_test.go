@@ -157,20 +157,30 @@ func TestRunRefusesABodyOverTheLimitAndStoresNothingForIt(t *testing.T) {
 				w.Write([]byte(strings.Repeat("x", 512)))
 				w.(http.Flusher).Flush()
 			}
+		case "/declared-over-and-stalled":
+			// The header alone says the body is too big, and the rest of it never comes: only a
+			// refusal made before reading can finish this one.
+			w.Header().Set("Content-Length", "4096")
+			w.Write([]byte(strings.Repeat("x", 100)))
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
 		}
 	})
 	st, dir := openFreshStore(t)
 
-	summary := runFetchOver(t, st, site.addresses("/at-the-limit", "/declared-over", "/streamed-over"),
-		func(cfg *fetch.RunConfig) { cfg.MaxBodyBytes = limit })
+	summary := runFetchOver(t, st, site.addresses("/at-the-limit", "/declared-over", "/streamed-over", "/declared-over-and-stalled"),
+		func(cfg *fetch.RunConfig) {
+			cfg.MaxBodyBytes = limit
+			cfg.Timeout = time.Second
+		})
 
-	if want := (fetch.RunSummary{Listed: 3, Held: 1, Failed: 2}); summary != want {
+	if want := (fetch.RunSummary{Listed: 4, Held: 1, Failed: 3}); summary != want {
 		t.Fatalf("summary = %+v, want %+v", summary, want)
 	}
 	if page := ledgerRowOf(t, st, site.address("/at-the-limit")); page.State != store.StateOK || page.SizeBytes != limit {
 		t.Errorf("a body of exactly the limit: row = %+v", page)
 	}
-	for _, uri := range []string{"/declared-over", "/streamed-over"} {
+	for _, uri := range []string{"/declared-over", "/streamed-over", "/declared-over-and-stalled"} {
 		page := ledgerRowOf(t, st, site.address(uri))
 		if page.State != store.StateFailed || page.Attempts != 1 || !strings.Contains(page.LastError, "larger than") {
 			t.Errorf("%s: row = %+v, want failed after one attempt, naming the limit", uri, page)
