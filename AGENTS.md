@@ -178,9 +178,11 @@
 - **The derive pass makes no request.** It runs `defuddle` with `useAsync: false`, the
   option that stops the library's own fetches, and a test counts requests to prove it.
 - **A body is bytes until its charset is settled.** The header's parameter, then a
-  `<meta>` declaration in the first 1024 bytes, then UTF-8. Bytes that are not valid in
-  the charset fail the page, by name, instead of being repaired into a reading copy that
-  is quietly wrong.
+  `<meta>` declaration in the first 1024 bytes. A page that declares nothing is read as
+  UTF-8 when its bytes are valid UTF-8 and as windows-1252 when they are not, which is
+  what a browser does with it, and the run names every page it read that way. Bytes that
+  are not valid in a charset the page did declare fail the page, by name, instead of
+  being repaired into a reading copy that is quietly wrong.
 - **A command that only reads does not create a store.** `list`, `status`, `verify` and
   `fetch --recipe` refuse a directory with no ledger; only `discover` and `fetch --list`
   create one.
