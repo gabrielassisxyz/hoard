@@ -27,3 +27,8 @@
 # What `npm ci` installs for the Node pass in markdown-pass/. The lockfile next to it is
 # committed; this is only the install it describes.
 node_modules
+
+# The cache the bead viewer `bv` keeps beside the tracker. The tool appends this line
+# itself to the ignore file of whatever tree it runs in; that left the main tree with an
+# uncommitted change and stopped a pull. With the line already here it has nothing to add.
+.bv/
