@@ -23,8 +23,8 @@ func TestRunConfigLeftBlankMeansTheDocumentedDefaults(t *testing.T) {
 	if got.RefusalPause != 30*time.Second {
 		t.Errorf("pause for a refusal that names no time = %v, want 30s", got.RefusalPause)
 	}
-	if !strings.Contains(got.UserAgent, "hoard") || !strings.Contains(got.UserAgent, "https://github.com/gabrielassisxyz/hoard") {
-		t.Errorf("default User-Agent %q names neither the tool nor its repository address", got.UserAgent)
+	if !strings.HasPrefix(got.UserAgent, "Mozilla/5.0 (") || strings.Contains(strings.ToLower(got.UserAgent), "hoard") {
+		t.Errorf("default User-Agent %q is not a browser's", got.UserAgent)
 	}
 }
 

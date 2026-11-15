@@ -196,8 +196,9 @@ func TestRunIntroducesItselfWithTheConfiguredUserAgent(t *testing.T) {
 			}
 		})
 	}
-	if !strings.Contains(fetch.DefaultUserAgent, "hoard") || !strings.Contains(fetch.DefaultUserAgent, "https://github.com/gabrielassisxyz/hoard") {
-		t.Errorf("the default User-Agent %q names neither the tool nor its repository", fetch.DefaultUserAgent)
+	// The default is what a browser sends, so a site answers the run as it answers a reader.
+	if !strings.HasPrefix(fetch.DefaultUserAgent, "Mozilla/5.0 (") || strings.Contains(strings.ToLower(fetch.DefaultUserAgent), "hoard") {
+		t.Errorf("the default User-Agent %q is not a browser's", fetch.DefaultUserAgent)
 	}
 }
 
