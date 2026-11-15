@@ -27,7 +27,12 @@ func runFetchByRecipe(ctx context.Context, opts fetchOptions, stdout, stderr io.
 	if err != nil {
 		return reportRunFailure(stderr, err)
 	}
-	st, err := store.Open(opts.storeDir)
+	// The ledger is filled by discover. A store that is not there yet is a mistyped
+	// directory or a missing first step, and creating it would hide which.
+	st, err := store.OpenExisting(opts.storeDir)
+	if errors.Is(err, store.ErrNoStore) {
+		return reportRunFailure(stderr, fmt.Errorf("%w: run hoard discover with this recipe first", err))
+	}
 	if err != nil {
 		return reportRunFailure(stderr, err)
 	}

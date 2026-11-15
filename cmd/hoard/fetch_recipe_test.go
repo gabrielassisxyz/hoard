@@ -167,12 +167,16 @@ func TestFetchByRecipeUsesTheRecipesTimeout(t *testing.T) {
 
 func TestFetchByRecipeWithNothingDiscoveredSaysSo(t *testing.T) {
 	site := newRecipeSite(t, 0, "/a")
-	run := runHoardBinary(t, "fetch", "--store", filepath.Join(t.TempDir(), "store"), "--recipe", site.recipe(t))
+	storeDir := filepath.Join(t.TempDir(), "store")
+	run := runHoardBinary(t, "fetch", "--store", storeDir, "--recipe", site.recipe(t))
 	if run.exitCode != 1 {
 		t.Errorf("exit code %d, want 1", run.exitCode)
 	}
 	if !strings.Contains(run.stderr, "hoard discover") {
 		t.Errorf("stderr does not name the command that fills the ledger: %s", run.stderr)
+	}
+	if _, err := os.Stat(storeDir); !os.IsNotExist(err) {
+		t.Errorf("a run with nothing discovered left a store behind (stat error: %v)", err)
 	}
 	if hits := site.hitsOn("/a") + site.hitsOn("/sitemap.xml"); hits != 0 {
 		t.Errorf("the site was asked %d times by a run with nothing to fetch", hits)
