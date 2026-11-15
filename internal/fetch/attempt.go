@@ -33,6 +33,9 @@ type attemptResult struct {
 	hasRetryAfter bool
 	redirectTo    *url.URL
 	storeErr      error
+	// responseTime is set only on a stored page: how long the site took to answer the request
+	// that ended in it, to the last byte of the body.
+	responseTime time.Duration
 }
 
 // Draining a short error body lets the connection be reused; a long one is not worth the
@@ -53,6 +56,9 @@ func (e *fetchScheduler) attempt(ctx context.Context, job *pageJob) attemptResul
 	if e.cfg.Cookie != "" && hostkey.SessionMayGoTo(e.cfg.CookieHost, job.target) {
 		req.Header.Set("Cookie", e.cfg.Cookie)
 	}
+	// The clock starts here and not when the job was queued or started: the wait for a worker
+	// and for the run's limiter is pacing, and is over before this request exists.
+	sentAt := time.Now()
 	resp, err := e.client.Do(req)
 	if err != nil {
 		return networkFailure(ctx, attemptResult{job: job}, "request failed: "+err.Error())
@@ -68,7 +74,7 @@ func (e *fetchScheduler) attempt(ctx context.Context, job *pageJob) attemptResul
 	redirectsTo, redirects := redirectTarget(resp)
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		return e.keepBody(ctx, resp, result)
+		return e.keepBody(ctx, resp, result, sentAt)
 	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusForbidden:
 		result.kind = attemptRefused
 		result.retryAfter, result.hasRetryAfter = ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
@@ -99,13 +105,15 @@ func redirectTarget(resp *http.Response) (*url.URL, bool) {
 
 // keepBody reads the answer to the end, within the size limit, and stores it. The body
 // is what the transport hands over after its own decoding, byte for byte.
-func (e *fetchScheduler) keepBody(ctx context.Context, resp *http.Response, result attemptResult) attemptResult {
+func (e *fetchScheduler) keepBody(ctx context.Context, resp *http.Response, result attemptResult, sentAt time.Time) attemptResult {
 	limit := e.cfg.MaxBodyBytes
 	if resp.ContentLength > limit {
 		return refuseOversizedBody(result, limit)
 	}
 	// One byte past the limit is enough to tell "exactly at it" from "over it".
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	// Read before the body is compressed and written: that is this machine's time, not the site's.
+	answeredIn := time.Since(sentAt)
 	if err != nil {
 		return networkFailure(ctx, result, "read body: "+err.Error())
 	}
@@ -120,6 +128,7 @@ func (e *fetchScheduler) keepBody(ctx context.Context, resp *http.Response, resu
 	}
 	result.kind = attemptStored
 	result.outcome.Body = ref
+	result.responseTime = answeredIn
 	return result
 }
 
