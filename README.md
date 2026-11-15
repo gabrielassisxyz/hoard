@@ -63,6 +63,36 @@ not typed leaves the recipe's value. Each value that was replaced is said on sta
 error, naming the flag, the value used and the recipe's, so a log read later does not take
 that run for one at the recipe's pace.
 
+### Capturing part of a site
+
+`discover` records every address the site lists. To take only part of it, say so when
+discovering. The choice is made on the command line and not in the recipe, because a recipe
+describes a site, and how much of it one capture takes is decided when capturing.
+
+```sh
+# the first 50 addresses under these sections, in the order the site lists them
+hoard discover --recipe example.toml --store ~/archives/example --paths /essays/,/notes/ --limit 50
+# the same call with a higher limit: only the next 50 are added
+hoard discover --recipe example.toml --store ~/archives/example --paths /essays/,/notes/ --limit 100
+# a sample of 200 addresses of the whole site, picked at random
+hoard discover --recipe example.toml --store ~/archives/sample --limit 200 --random
+```
+
+`--paths` takes path prefixes separated by commas, each starting with `/`. An address is
+chosen when its path starts with one of them, compared as text: `/essays/` chooses
+`/essays/an-article` and not `/essays-archive/x`. An address also has to match the
+recipe's `pattern`, when it has one.
+
+`--limit` is the number of chosen addresses the store ends up holding, not the number
+this call adds. The chosen addresses the store already has count toward it, in any state,
+so asking again with the same words adds nothing, and raising the limit adds only the
+difference. The additions are the first chosen addresses the store does not have yet, in
+the order the site lists them; with `--random` they are picked among those instead, each
+as likely as any other. `--random` needs `--limit`.
+
+When the limit leaves chosen addresses out, the line that `discover` prints ends with how
+many: `200 found, 50 new, 0 off-site, 150 beyond the limit`.
+
 ## What it is not
 
 - Not a general crawler. Each site is described by its own small recipe.
