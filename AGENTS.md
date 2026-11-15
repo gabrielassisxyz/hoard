@@ -168,6 +168,11 @@
 - **A discovery gives the whole list or fails.** A sitemap index is read exactly one level
   deep. When any document cannot be read nothing is recorded, because a partial list looks
   complete to everything that reads the ledger afterwards.
+- **The discover flags choose among a complete list.** `--paths`, `--limit` and `--random`
+  belong to the run, not to the recipe, and are applied after discovery has given the whole
+  list. `--limit` is how many chosen addresses the store ends up holding, those already in
+  the ledger in any state included, so asking twice adds nothing; `--random` picks only
+  among the chosen addresses that have no row yet.
 - **The session cookie is decided for every request.** It goes to the recipe's own host,
   over https or to this machine itself, and nowhere else: not to the host a redirect leads
   to, not over plain http. No client here keeps a cookie jar or follows a redirect by
