@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -167,6 +169,41 @@ func syntheticPageServer(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "<p>%s</p>", r.URL.Path)
 }
 
+// fetchMedianLinePattern is the second line of a fetch that stored pages: it captures the
+// figure and the number of pages.
+var fetchMedianLinePattern = regexp.MustCompile(`^median response (\d+) ms over (\d+) pages$`)
+
+// outputLinesOf splits what a command printed into its lines, without the newline that ends
+// the last.
+func outputLinesOf(output string) []string {
+	return strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+}
+
+// summaryLineOf is the first line a fetch prints, the one every test and script reads. What
+// follows it is for a person.
+func summaryLineOf(output string) string {
+	return outputLinesOf(output)[0]
+}
+
+// medianResponseMillisecondsOf checks that a fetch printed its summary line and then, as its
+// second and last line, the median over the given number of pages, and returns the figure on it.
+func medianResponseMillisecondsOf(t *testing.T, stdout string, pages int) int {
+	t.Helper()
+	lines := outputLinesOf(stdout)
+	if len(lines) != 2 {
+		t.Fatalf("stdout has %d lines, want the summary line and the median line:\n%s", len(lines), stdout)
+	}
+	parts := fetchMedianLinePattern.FindStringSubmatch(lines[1])
+	if parts == nil || parts[2] != strconv.Itoa(pages) {
+		t.Fatalf("the second line is %q, want: median response <n> ms over %d pages", lines[1], pages)
+	}
+	milliseconds, err := strconv.Atoi(parts[1])
+	if err != nil {
+		t.Fatalf("the figure on the second line is not a number: %v", err)
+	}
+	return milliseconds
+}
+
 func TestBinaryIsBuiltWithoutCGO(t *testing.T) {
 	binary := builtHoardBinary(t)
 	output, err := exec.Command("go", "version", "-m", binary).CombinedOutput()
@@ -187,12 +224,12 @@ func TestBinaryExitsZeroWhenEveryAddressIsHeld(t *testing.T) {
 	if first.exitCode != 0 || first.stderr != "" {
 		t.Fatalf("first run: exit %d, stderr %q", first.exitCode, first.stderr)
 	}
-	if want := "3 listed, 3 held, 0 failed, 0 pending\n"; first.stdout != want {
-		t.Fatalf("first run printed %q, want %q", first.stdout, want)
+	if want := "3 listed, 3 held, 0 failed, 0 pending"; summaryLineOf(first.stdout) != want {
+		t.Fatalf("first run printed %q, want %q first", first.stdout, want)
 	}
 
 	second := runHoardBinary(t, "fetch", "--store", store, "--list", list, "--rate", "1000")
-	if second.exitCode != 0 || second.stdout != first.stdout {
+	if second.exitCode != 0 || summaryLineOf(second.stdout) != summaryLineOf(first.stdout) {
 		t.Fatalf("second run: exit %d, stdout %q", second.exitCode, second.stdout)
 	}
 	for _, path := range []string{"/a", "/b", "/c"} {
@@ -218,12 +255,99 @@ func TestBinaryExitsOneWhenAnAddressCouldNotBeFetched(t *testing.T) {
 		if result.exitCode != 1 {
 			t.Fatalf("run %d: exit %d, want 1 (stderr %q)", run, result.exitCode, result.stderr)
 		}
-		if want := "2 listed, 1 held, 1 failed, 0 pending\n"; result.stdout != want {
-			t.Fatalf("run %d printed %q, want %q", run, result.stdout, want)
+		if want := "2 listed, 1 held, 1 failed, 0 pending"; summaryLineOf(result.stdout) != want {
+			t.Fatalf("run %d printed %q, want %q first", run, result.stdout, want)
 		}
 	}
 	if got := site.hitsOn("/missing"); got != 1 {
 		t.Errorf("the missing page was requested %d times over two runs, want once", got)
+	}
+}
+
+func TestBinaryPrintsTheMedianResponseTimeAfterTheSummary(t *testing.T) {
+	site := newCLISite(t, syntheticPageServer)
+	store := filepath.Join(t.TempDir(), "store")
+	list := writeListFile(t, site.URL+"/a", site.URL+"/b", site.URL+"/c")
+
+	result := runHoardBinary(t, "fetch", "--store", store, "--list", list, "--rate", "1000")
+
+	if result.exitCode != 0 {
+		t.Fatalf("exit %d: %s", result.exitCode, result.stderr)
+	}
+	if want := "3 listed, 3 held, 0 failed, 0 pending"; summaryLineOf(result.stdout) != want {
+		t.Errorf("the first line is %q, want %q", summaryLineOf(result.stdout), want)
+	}
+	medianResponseMillisecondsOf(t, result.stdout, 3)
+}
+
+func TestBinaryMedianResponseTimeIsNotLessThanTheWaitOfTheSite(t *testing.T) {
+	const wait = 80 * time.Millisecond
+	site := newCLISite(t, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(wait)
+		syntheticPageServer(w, r)
+	})
+	store := filepath.Join(t.TempDir(), "store")
+	list := writeListFile(t, site.URL+"/a", site.URL+"/b", site.URL+"/c")
+
+	result := runHoardBinary(t, "fetch", "--store", store, "--list", list, "--rate", "1000")
+
+	if result.exitCode != 0 {
+		t.Fatalf("exit %d: %s", result.exitCode, result.stderr)
+	}
+	got := medianResponseMillisecondsOf(t, result.stdout, 3)
+	// The lower bound is the site's own wait: a loaded machine makes the figure larger, never
+	// smaller. The upper bound is far above it and only catches a figure in the wrong unit.
+	if got < int(wait.Milliseconds()) || got > 2000 {
+		t.Errorf("median response %d ms from a site that waits %v before every answer", got, wait)
+	}
+}
+
+func TestBinaryPrintsNoMedianWhenItStoredNoPage(t *testing.T) {
+	t.Run("a second run over a finished capture", func(t *testing.T) {
+		site := newCLISite(t, syntheticPageServer)
+		store := filepath.Join(t.TempDir(), "store")
+		list := writeListFile(t, site.URL+"/a", site.URL+"/b", site.URL+"/c")
+
+		first := runHoardBinary(t, "fetch", "--store", store, "--list", list, "--rate", "1000")
+		// The first run did store pages, or the second one would prove nothing.
+		medianResponseMillisecondsOf(t, first.stdout, 3)
+		second := runHoardBinary(t, "fetch", "--store", store, "--list", list, "--rate", "1000")
+
+		if want := "3 listed, 3 held, 0 failed, 0 pending\n"; second.exitCode != 0 || second.stdout != want {
+			t.Errorf("second run: exit %d, stdout %q, want only %q", second.exitCode, second.stdout, want)
+		}
+	})
+
+	t.Run("every address fails", func(t *testing.T) {
+		site := newCLISite(t, func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+		store := filepath.Join(t.TempDir(), "store")
+		list := writeListFile(t, site.URL+"/a", site.URL+"/b")
+
+		result := runHoardBinary(t, "fetch", "--store", store, "--list", list, "--rate", "1000")
+
+		if want := "2 listed, 0 held, 2 failed, 0 pending\n"; result.exitCode != 1 || result.stdout != want {
+			t.Errorf("exit %d, stdout %q, want exit 1 and only %q", result.exitCode, result.stdout, want)
+		}
+	})
+}
+
+func TestBinaryMedianResponseTimeLeavesOutTheWaitForThePace(t *testing.T) {
+	site := newCLISite(t, syntheticPageServer)
+	store := filepath.Join(t.TempDir(), "store")
+	list := writeListFile(t, site.URL+"/a", site.URL+"/b", site.URL+"/c")
+
+	result := runHoardBinary(t, "fetch", "--store", store, "--list", list, "--rate", "2")
+
+	if result.exitCode != 0 {
+		t.Fatalf("exit %d: %s", result.exitCode, result.stderr)
+	}
+	// Not vacuous: at 2 a second the pace holds the second page back for half a second and the
+	// third for a whole one, which is what a clock that ran during the wait would read.
+	if span := site.arrivalSpan(); span < 900*time.Millisecond {
+		t.Fatalf("three requests at 2 a second arrived within %v, want about a second", span)
+	}
+	if got := medianResponseMillisecondsOf(t, result.stdout, 3); got >= 400 {
+		t.Errorf("median response %d ms from a site that answers at once: the wait for the pace was counted", got)
 	}
 }
 

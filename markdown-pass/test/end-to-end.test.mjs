@@ -51,7 +51,13 @@ test('fetch, list and derive turn a small site into Markdown, one file per HTML 
 
   const fetched = await hoard('fetch', '--store', storeDirectory, '--list', `${directory}/addresses.txt`, '--rate', '1000');
   assert.equal(fetched.status, 0, fetched.stderr);
-  assert.equal(fetched.stdout, '4 listed, 4 held, 0 failed, 0 pending\n');
+  // The summary is the first line. The second says how long the site took to answer, and its
+  // figure depends on the machine, so only its shape is asserted.
+  const fetchedLines = fetched.stdout.split('\n');
+  assert.equal(fetchedLines.length, 3, 'two lines, each ended by a newline');
+  assert.equal(fetchedLines[0], '4 listed, 4 held, 0 failed, 0 pending');
+  assert.match(fetchedLines[1], /^median response \d+ ms over 4 pages$/);
+  assert.equal(fetchedLines[2], '');
 
   const listing = await hoard('list', '--store', storeDirectory, '--json');
   assert.equal(listing.status, 0, listing.stderr);

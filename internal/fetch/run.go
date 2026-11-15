@@ -81,21 +81,29 @@ func (s RunSummary) String() string {
 // Cancelling ctx stops the run cleanly: nothing new is started, what was in flight is
 // abandoned, and the addresses not yet settled stay pending for the next run.
 func Run(ctx context.Context, cfg RunConfig) (RunSummary, error) {
+	summary, _, err := RunWithResponseTimes(ctx, cfg)
+	return summary, err
+}
+
+// RunWithResponseTimes is Run, and also says how long the site took to answer each page this
+// run stored. A run that stored nothing, such as a second one over a finished capture, has no
+// times to give: nothing in the ledger records them.
+func RunWithResponseTimes(ctx context.Context, cfg RunConfig) (RunSummary, ResponseTimes, error) {
 	cfg, err := cfg.resolved()
 	if err != nil {
-		return RunSummary{}, err
+		return RunSummary{}, nil, err
 	}
 	if err := cfg.Store.AddPending(cfg.Addresses); err != nil {
-		return RunSummary{}, err
+		return RunSummary{}, nil, err
 	}
 	eng := newFetchScheduler(cfg)
 	defer eng.client.CloseIdleConnections()
 	if err := eng.enqueuePending(); err != nil {
-		return RunSummary{}, err
+		return RunSummary{}, nil, err
 	}
 	loopErr := eng.loop(ctx)
 	summary, summaryErr := eng.summarize()
-	return summary, errors.Join(loopErr, summaryErr)
+	return summary, eng.responseTimes, errors.Join(loopErr, summaryErr)
 }
 
 func (c RunConfig) resolved() (RunConfig, error) {

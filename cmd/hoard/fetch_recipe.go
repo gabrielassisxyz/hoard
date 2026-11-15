@@ -53,7 +53,7 @@ func runFetchByRecipe(ctx context.Context, opts fetchOptions, stdout, stderr io.
 		fmt.Fprintln(stderr, line)
 	}
 
-	summary, err := fetch.Run(ctx, fetch.RunConfig{
+	summary, answered, err := fetch.RunWithResponseTimes(ctx, fetch.RunConfig{
 		Store:      st,
 		Addresses:  addresses,
 		Workers:    pace.Workers,
@@ -66,11 +66,7 @@ func runFetchByRecipe(ctx context.Context, opts fetchOptions, stdout, stderr io.
 	if err != nil {
 		return reportRunFailure(stderr, err)
 	}
-	fmt.Fprintln(stdout, summary)
-	if !summary.Complete() {
-		return exitCodeIncomplete
-	}
-	return exitCodeComplete
+	return reportFetchRun(stdout, summary, answered)
 }
 
 // paceForThisRun is how the site is asked on this run: what the recipe states, except for

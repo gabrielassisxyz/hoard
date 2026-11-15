@@ -34,6 +34,8 @@ type fetchScheduler struct {
 	stopping  bool
 	results   chan attemptResult
 	requests  sync.WaitGroup
+	// responseTimes gets one entry for each page the run stores, when the page is settled.
+	responseTimes ResponseTimes
 }
 
 func newFetchScheduler(cfg RunConfig) *fetchScheduler {
@@ -196,7 +198,11 @@ func (e *fetchScheduler) settle(result attemptResult) error {
 	switch result.kind {
 	case attemptStored:
 		e.remaining--
-		return e.cfg.Store.MarkOK(job.address, result.outcome)
+		if err := e.cfg.Store.MarkOK(job.address, result.outcome); err != nil {
+			return err
+		}
+		e.responseTimes = append(e.responseTimes, result.responseTime)
+		return nil
 	case attemptFinal:
 		e.remaining--
 		return e.cfg.Store.MarkFailed(job.address, result.outcome)

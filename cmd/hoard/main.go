@@ -109,7 +109,7 @@ func runFetchCommand(ctx context.Context, args []string, stdout, stderr io.Write
 	}
 	defer st.Close()
 
-	summary, err := fetch.Run(ctx, fetch.RunConfig{
+	summary, answered, err := fetch.RunWithResponseTimes(ctx, fetch.RunConfig{
 		Store:     st,
 		Addresses: addresses,
 		Workers:   opts.workers,
@@ -120,7 +120,17 @@ func runFetchCommand(ctx context.Context, args []string, stdout, stderr io.Write
 	if err != nil {
 		return reportRunFailure(stderr, err)
 	}
+	return reportFetchRun(stdout, summary, answered)
+}
+
+// reportFetchRun says what a fetch did, on standard output: the summary line, and after it,
+// when the run stored a page, how long the site took to answer. Both forms of fetch end here so
+// that they say it alike. The exit code is 0 only when every listed address is held.
+func reportFetchRun(stdout io.Writer, summary fetch.RunSummary, answered fetch.ResponseTimes) int {
 	fmt.Fprintln(stdout, summary)
+	if line, stored := answered.MedianLine(); stored {
+		fmt.Fprintln(stdout, line)
+	}
 	if !summary.Complete() {
 		return exitCodeIncomplete
 	}
