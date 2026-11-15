@@ -46,6 +46,10 @@ func hoardMain(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return runDiscoverCommand(ctx, args[1:], stdout, stderr)
 	case "fetch":
 		return runFetchCommand(ctx, args[1:], stdout, stderr)
+	case "status":
+		return runStatusCommand(args[1:], stdout, stderr)
+	case "verify":
+		return runVerifyCommand(args[1:], stdout, stderr)
 	case "-h", "--help", "help":
 		printTopLevelUsage(stdout)
 		return exitCodeComplete
@@ -62,6 +66,8 @@ func printTopLevelUsage(w io.Writer) {
 	fmt.Fprintln(w, "commands:")
 	fmt.Fprintln(w, "  discover  find a site's addresses and record them in a store")
 	fmt.Fprintln(w, "  fetch     fetch a list of addresses, or what a recipe discovered, into a raw store")
+	fmt.Fprintln(w, "  status    say how many addresses a store holds, and why the failed ones failed")
+	fmt.Fprintln(w, "  verify    check a store against the criterion its recipe states")
 }
 
 type fetchOptions struct {
