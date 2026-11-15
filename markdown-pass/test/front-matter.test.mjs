@@ -39,7 +39,7 @@ async function deriveToFiles(t, html, fields) {
   const directory = await scratchDirectory(t);
   const outDir = `${directory}/out`;
   const page = await listedPage(directory, { body: html, ...fields });
-  const result = await deriveInto(outDir, linesOf([page]));
+  const result = await deriveInto(outDir, linesOf([page]), ['--clean-html']);
   assert.equal(result.status, 0, result.stderr);
   const files = await filesUnder(outDir);
   const name = outputNameOf(page.address);

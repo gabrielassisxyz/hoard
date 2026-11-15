@@ -30,13 +30,17 @@ async function extractFrom(html, finalAddress) {
   }
 }
 
-async function writeDerivedFiles(outDir, page, extracted) {
+// The Markdown is the reading copy. The cleaned HTML it was made from is written only on
+// request: nothing reads it, it can be made again from the stored page at any time, and on
+// a real capture it took nearly as much room as the compressed pages themselves.
+async function writeDerivedFiles(outDir, page, extracted, { cleanHtml = false }) {
   const paths = outputPathsOf(outDir, page.address);
+  const files = [{ path: paths.markdown, content: markdownFileOf(page, extracted) }];
+  if (cleanHtml) {
+    files.push({ path: paths.cleanHtml, content: extracted.cleanHtml });
+  }
   try {
-    await writeFilesAtomically([
-      { path: paths.markdown, content: markdownFileOf(page, extracted) },
-      { path: paths.cleanHtml, content: extracted.cleanHtml },
-    ]);
+    await writeFilesAtomically(files);
   } catch (error) {
     throw new Error(`cannot write the output: ${error.message}`, { cause: error });
   }
@@ -54,12 +58,12 @@ export function outcomeOfMarkdown(markdown) {
 // the output). Anything that goes wrong throws, and nothing has been left under a final name.
 //
 // note is called with anything worth saying about a page that was derived all the same.
-export async function derivePage(page, outDir, note = () => {}) {
+export async function derivePage(page, outDir, note = () => {}, options = {}) {
   const bytes = await readStoredBody(page.body_path);
   const html = decodeBody(bytes, page.content_type, (charset) => {
     note(`no charset is declared and the bytes are not valid UTF-8: read as ${charset}`);
   });
   const extracted = await extractFrom(html, page.final_address);
-  await writeDerivedFiles(outDir, page, extracted);
+  await writeDerivedFiles(outDir, page, extracted, options);
   return outcomeOfMarkdown(extracted.markdown);
 }

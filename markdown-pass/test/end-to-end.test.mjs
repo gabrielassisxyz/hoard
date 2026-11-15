@@ -30,7 +30,7 @@ function pageWith(title, marker) {
   });
 }
 
-test('fetch, list and derive turn a small site into Markdown and clean HTML, one pair per HTML page', async (t) => {
+test('fetch, list and derive turn a small site into Markdown, one file per HTML page', async (t) => {
   const site = await startSite(t, {
     '/guides/first': { headers: HTML_HEADERS, body: pageWith('First guide', 'The first marker') },
     '/guides/second': { headers: HTML_HEADERS, body: pageWith('Second guide', 'The second marker') },
@@ -72,17 +72,10 @@ test('fetch, list and derive turn a small site into Markdown and clean HTML, one
     const name = outputNameOf(address);
     return files.get(`markdown/${name.slice(0, 2)}/${name}.md`)?.toString('utf8');
   };
-  const cleanOf = (address) => {
-    const name = outputNameOf(address);
-    return files.get(`clean/${name.slice(0, 2)}/${name}.html`)?.toString('utf8');
-  };
 
   assert.match(markdownOf(addresses[0]), /The first marker is the sentence that only this page holds\./);
   assert.match(markdownOf(addresses[1]), /The second marker is the sentence that only this page holds\./);
   assert.match(markdownOf(addresses[2]), /The renamed marker is the sentence that only this page holds\./);
-  for (const address of addresses.slice(0, 3)) {
-    assert.match(cleanOf(address), /<p>/, `${address} has clean HTML`);
-  }
 
   const block = markdownOf(addresses[2]).split('\n').slice(0, 4);
   assert.deepEqual(block, [
@@ -93,5 +86,5 @@ test('fetch, list and derive turn a small site into Markdown and clean HTML, one
   ], 'the redirected page carries the address it was asked for and the one it came from');
 
   assert.equal(markdownOf(addresses[3]), undefined, 'the JSON response was skipped, not derived');
-  assert.equal(files.size, 6, 'three pages, two files each, and nothing for the one that was skipped');
+  assert.equal(files.size, 3, 'three pages, one file each, and nothing for the one that was skipped');
 });

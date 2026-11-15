@@ -117,7 +117,7 @@ test('through the whole pass: a page whose output cannot be put in place leaves 
   await mkdir(markdown, { recursive: true });
   await writeFile(path.join(markdown, 'obstacle.txt'), 'in the way');
 
-  const result = await deriveInto(outDir, linesOf([page]));
+  const result = await deriveInto(outDir, linesOf([page]), ['--clean-html']);
 
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stderr, /blocked: cannot write the output/);
@@ -140,9 +140,10 @@ test('two runs over the same input leave byte-identical files, in the same place
   ];
   const input = linesOf(pages);
 
-  const first = await deriveInto(`${directory}/first`, input);
-  const second = await deriveInto(`${directory}/second`, input);
-  const again = await deriveInto(`${directory}/first`, input);
+  // Asked for with the clean HTML, so that both kinds of file are compared.
+  const first = await deriveInto(`${directory}/first`, input, ['--clean-html']);
+  const second = await deriveInto(`${directory}/second`, input, ['--clean-html']);
+  const again = await deriveInto(`${directory}/first`, input, ['--clean-html']);
 
   for (const result of [first, second, again]) {
     assert.equal(result.status, 0, result.stderr);

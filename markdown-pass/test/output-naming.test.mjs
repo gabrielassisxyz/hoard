@@ -29,7 +29,8 @@ test('a page lands under markdown/ and clean/, in a directory of the name\'s fir
   assert.equal(paths.cleanHtml, `/out/clean/aa/${NAME_OF_PLAIN_ADDRESS}.html`);
 });
 
-test('the pass writes one Markdown file and one clean HTML file named after the address', async (t) => {
+// Derives one page whose address and final address differ, and returns the files it left.
+async function filesDerivedFromOnePage(t, extraArgs) {
   const directory = await scratchDirectory(t);
   const outDir = `${directory}/out`;
   const page = await listedPage(directory, {
@@ -37,18 +38,27 @@ test('the pass writes one Markdown file and one clean HTML file named after the 
     address: 'https://site.test/café',
     final_address: 'https://site.test/café/final',
   });
-
-  const result = await deriveInto(outDir, linesOf([page]));
-
+  const result = await deriveInto(outDir, linesOf([page]), extraArgs);
   assert.equal(result.status, 0, result.stderr);
-  const files = await filesUnder(outDir);
+  return [...(await filesUnder(outDir)).keys()];
+}
+
+test('the pass writes one Markdown file named after the address, and no clean HTML unless asked', async (t) => {
   assert.deepEqual(
-    [...files.keys()],
+    await filesDerivedFromOnePage(t, []),
+    [`markdown/a7/${NAME_OF_ACCENTED_ADDRESS}.md`],
+    'exactly this one file, named from address and not from final_address or the body',
+  );
+});
+
+test('with --clean-html the pass also writes the clean HTML, under the same name', async (t) => {
+  assert.deepEqual(
+    await filesDerivedFromOnePage(t, ['--clean-html']),
     [
       `clean/a7/${NAME_OF_ACCENTED_ADDRESS}.html`,
       `markdown/a7/${NAME_OF_ACCENTED_ADDRESS}.md`,
     ],
-    'exactly these two files, named from address and not from final_address or the body',
+    'exactly these two files',
   );
 });
 
@@ -63,7 +73,7 @@ test('two addresses that share one body are two derived pages, each under its ow
   const result = await deriveInto(outDir, linesOf([first, second]));
 
   assert.equal(result.status, 0, result.stderr);
-  assert.equal((await filesUnder(outDir)).size, 4);
+  assert.equal((await filesUnder(outDir)).size, 2);
 });
 
 test('only HTML content types are derived: by media type, ignoring parameters and case, or none at all', async (t) => {
@@ -87,7 +97,7 @@ test('only HTML content types are derived: by media type, ignoring parameters an
   const lastLine = result.stdout.trimEnd().split('\n').at(-1);
   assert.equal(lastLine, '4 derived, 0 empty, 4 skipped, 0 failed');
   const files = await filesUnder(outDir);
-  assert.equal(files.size, derivedTypes.length * 2);
+  assert.equal(files.size, derivedTypes.length);
   for (const [index, contentType] of derivedTypes.entries()) {
     const name = outputNameOf(`https://site.test/type-${index}`);
     assert.ok(files.has(`markdown/${name.slice(0, 2)}/${name}.md`), `${JSON.stringify(contentType)} was derived`);
