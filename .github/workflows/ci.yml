@@ -9,6 +9,9 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: actions/setup-go@v6
         with: { go-version: stable }
+      # The pass that derives Markdown is Node, and bin/ci runs its tests.
+      - uses: actions/setup-node@v7
+        with: { node-version: 24 }
       # The gitleaks CLI, not gitleaks-action: same binary and rules as the pre-commit
       # hook, and no write token.
       - name: Install gitleaks

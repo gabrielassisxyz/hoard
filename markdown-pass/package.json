@@ -1,0 +1,15 @@
+{
+  "name": "hoard-markdown-pass",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.15"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "defuddle": "0.19.6",
+    "linkedom": "0.18.12"
+  }
+}
