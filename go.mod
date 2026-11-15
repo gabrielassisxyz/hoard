@@ -5,6 +5,7 @@ go 1.26.6
 require (
 	github.com/klauspost/compress v1.20.4
 	github.com/pelletier/go-toml/v2 v2.4.3
+	golang.org/x/net v0.62.0
 	golang.org/x/time v0.16.0
 	modernc.org/sqlite v1.62.0
 )

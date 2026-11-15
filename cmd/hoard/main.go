@@ -41,6 +41,8 @@ func hoardMain(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return exitCodeUsage
 	}
 	switch args[0] {
+	case "discover":
+		return runDiscoverCommand(ctx, args[1:], stdout, stderr)
 	case "fetch":
 		return runFetchCommand(ctx, args[1:], stdout, stderr)
 	case "-h", "--help", "help":
@@ -57,7 +59,8 @@ func printTopLevelUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage: hoard <command> [flags]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "commands:")
-	fmt.Fprintln(w, "  fetch   fetch a list of addresses into a raw store")
+	fmt.Fprintln(w, "  discover  find a site's addresses and record them in a store")
+	fmt.Fprintln(w, "  fetch     fetch a list of addresses into a raw store")
 }
 
 type fetchOptions struct {
