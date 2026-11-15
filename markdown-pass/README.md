@@ -34,6 +34,44 @@ actually served from.
 Every file is written under a temporary name and renamed into place, and two runs over the
 same input leave byte-identical files.
 
+## Keeping the images
+
+By default the Markdown shows a picture only while the author's file storage still serves it:
+the image is an address on the network. Keeping a capture's images takes three steps, the
+collector's in the middle:
+
+```sh
+hoard list --store <store> --json | node markdown-pass/derive.mjs --list-images > images.txt
+hoard assets --store <store> --list images.txt
+hoard list --store <store> --json > pages.jsonl
+hoard list --store <store> --assets --json > assets.jsonl
+node markdown-pass/derive.mjs --out <out> --assets assets.jsonl < pages.jsonl
+```
+
+`--list-images` prints the `http` and `https` address of every image in the derived
+content, each once, in the order first met, and writes no file. An image is a Markdown image
+or an `<img src>` in HTML the extractor kept. Left out: `data:` images, which have nothing to
+fetch, and any address on `youtube.com`, `youtu.be` or `vimeo.com` or a subdomain of one
+(`www.`, `m.`, `player.`), because the extractor writes an embedded video in image syntax.
+It takes none of `--out`, `--clean-html` or `--assets`.
+
+`--assets <file>` reads the lines `hoard list --assets --json` prints. In the Markdown it
+writes, an image whose address is in the file becomes a path relative to the Markdown file's
+own directory, so the capture can be moved as a whole; every other image keeps its address,
+and so does one the collector could not fetch. Only the address inside the image changes: alt
+text, a title and the opening block are as they were without the option. Each path segment is
+percent-encoded, so a space or parenthesis in the store's location cannot end the image early.
+A line that is not an object with the six keys (`address`, `final_address`, `content_type`,
+`sha256`, `size_bytes`, `file_path`), or a file that cannot be read, exits 2 before any
+Markdown is written, because a list read in part would leave some images remote without
+saying so. The cleaned HTML written by `--clean-html` is not rewritten.
+
+Images are found by scanning the Markdown, not by a pattern over it: alt text with escaped or
+nested brackets, a destination in angle brackets or with parentheses, and a title in double
+quotes, single quotes or parentheses are read; text inside fenced code blocks and inline code
+is left alone. Not handled, because the extractor does not write them: reference-style images
+(`![alt][ref]`), `srcset`, `<picture>` and an image whose alt text or title spans lines.
+
 ## Reading the bytes
 
 A body is bytes, not text. They are decoded with the charset of the `Content-Type` header,
@@ -56,8 +94,8 @@ input line is counted once, in one of the four:
   line on standard error names the page's address, or the line's number, and what went wrong;
   the rest of the list is still done.
 
-The exit status is 0 when nothing failed, 1 when anything did, and 2 when the command line
-could not be read.
+The exit status is 0 when nothing failed, 1 when anything did, and 2 when the command line or
+the `--assets` file could not be read.
 
 ## Tests
 
@@ -66,6 +104,6 @@ npm ci
 npm test
 ```
 
-The tests use synthetic pages only. The end-to-end test runs the real chain, `hoard fetch`,
-`hoard list --json` and this program, against a web server it starts on a local port, so it
+The tests use synthetic pages only. The end-to-end tests run the real chain, `hoard fetch`,
+`hoard list --json`, `hoard assets` and this program, against a web server it starts on a local port, so it
 needs Go to be installed.

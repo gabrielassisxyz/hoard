@@ -193,6 +193,11 @@
   extractor returns depends on the address it is given as the base for links.
 - **The derive pass makes no request.** It runs `defuddle` with `useAsync: false`, the
   option that stops the library's own fetches, and a test counts requests to prove it.
+- **An image keeps its address unless the store holds it.** `derive.mjs --assets` rewrites
+  only the address inside an image whose address is in the list `hoard list --assets --json`
+  printed, to a path relative to the Markdown file, and a malformed line in that list stops
+  the run before any Markdown is written. `--list-images` prints the addresses to fetch and
+  writes nothing.
 - **A body is bytes until its charset is settled.** The header's parameter, then a
   `<meta>` declaration in the first 1024 bytes. A page that declares nothing is read as
   UTF-8 when its bytes are valid UTF-8 and as windows-1252 when they are not, which is
