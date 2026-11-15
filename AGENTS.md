@@ -39,8 +39,10 @@
   `raw/<xx>/<sha256>.zst`) and ends by saying how long the site took to answer.
   `hoard verify` judges the capture by the recipe's criterion,
   `hoard status` says where it stands, `hoard list --json` prints what the store holds,
-  and `markdown-pass/derive.mjs` turns those lines into Markdown. Not built
-  yet: `robots.txt`, assets, skipping pages already derived, a browser for pages that only
+  and `markdown-pass/derive.mjs` turns those lines into Markdown. `hoard assets --list`
+  keeps a list of image addresses as files under `assets/`, in a table of their own, and
+  `hoard list --assets --json` prints them. Not built
+  yet: `robots.txt`, stylesheets and other assets, skipping pages already derived, a browser for pages that only
   exist after JavaScript runs. The next target is the first recipe for a real site, kept
   outside this repository; don't expand beyond that without a present need, and if a
   change drifts past it, STOP and flag it.
@@ -166,6 +168,12 @@
   key that belongs to another way of finding pages; one load reports every problem.
 - **A recipe collects one site.** A discovered address on another host is left out and
   counted. What counts as one site is decided in one place, `internal/hostkey`.
+- **Images are kept apart from pages.** `hoard assets` writes the `assets` table and the
+  files under `assets/<xx>/<sha256><extension>`, as they arrived and uncompressed; it asks
+  any host, sends no cookie, and settles an answer that is not `image/*` as failed with the
+  type in its reason, its body unread. `pages` is never altered, and `list --json`,
+  `verify` and the page counts of `status` see pages only. It is the same scheduler, chosen
+  to write to the other table, so pace, pauses, retries and the size limit are the same.
 - **A discovery gives the whole list or fails.** A sitemap index is read exactly one level
   deep. When any document cannot be read nothing is recorded, because a partial list looks
   complete to everything that reads the ledger afterwards.

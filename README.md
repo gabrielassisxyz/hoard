@@ -71,6 +71,28 @@ fast usually slows down before it starts refusing, and this is the number to com
 two runs at different paces. A run that stored nothing, such as a second one over a finished
 capture, prints only its summary line.
 
+### Keeping a page's images
+
+A post full of screenshots is stored as text with addresses where the pictures were. To keep
+the pictures too, give `assets` a file with one image address per line:
+
+```sh
+hoard assets --store ~/archives/example --list images.txt   # keep these images
+hoard list   --store ~/archives/example --assets --json     # what is held
+```
+
+Each image is stored as it arrived under `assets/<xx>/<sha256><extension>`, once however
+many addresses serve the same bytes, and recorded apart from the pages: `list --json`,
+`verify` and the page counts of `status` never see it, and `status` reports the images on a
+line of their own, `assets: <n> held, <n> failed, <n> pending`. The extension comes from the
+answer's `Content-Type` (`.jpg` for JPEG), or for another image type from the address, and is
+`.img` when neither says. An answer that is not an image, such as an error page served with
+status 200, fails its address with the type in the reason. Images may live on any host, so
+the command asks whichever host an address names, never sends a cookie, and takes the same
+`--workers`, `--rate`, `--timeout` and `--user-agent` as `fetch`. Like `fetch --list`, it
+creates the store when there is none. It prints `<n> listed, <n> held, <n> failed, <n> pending`
+and exits 0 only when every address is held.
+
 ### Capturing part of a site
 
 `discover` records every address the site lists. To take only part of it, say so when
