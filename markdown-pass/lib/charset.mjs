@@ -38,8 +38,8 @@ export function decodeBody(bytes, contentType) {
 // bytes declares, or null. The first tag that declares one wins.
 export function charsetDeclaredInMeta(bytes) {
   // latin1 maps each byte to one character, which is all that is needed to find ASCII tags.
-  const window = Buffer.from(bytes.buffer, bytes.byteOffset, Math.min(bytes.byteLength, META_SCAN_BYTES));
-  const head = window.toString('latin1').replace(COMMENT, '');
+  const scanned = Buffer.from(bytes.buffer, bytes.byteOffset, Math.min(bytes.byteLength, META_SCAN_BYTES));
+  const head = scanned.toString('latin1').replace(COMMENT, '');
   for (const [tag] of head.matchAll(META_TAG)) {
     const charset = charsetDeclaredBy(attributesOf(tag));
     if (charset !== null) {
