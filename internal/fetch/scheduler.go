@@ -198,14 +198,14 @@ func (e *fetchScheduler) settle(result attemptResult) error {
 	switch result.kind {
 	case attemptStored:
 		e.remaining--
-		if err := e.cfg.Store.MarkOK(job.address, result.outcome); err != nil {
+		if err := e.cfg.ledger().MarkOK(job.address, result.outcome); err != nil {
 			return err
 		}
 		e.responseTimes = append(e.responseTimes, result.responseTime)
 		return nil
 	case attemptFinal:
 		e.remaining--
-		return e.cfg.Store.MarkFailed(job.address, result.outcome)
+		return e.cfg.ledger().MarkFailed(job.address, result.outcome)
 	case attemptRefused:
 		return e.waitOutRefusal(job, result)
 	default:
@@ -219,7 +219,7 @@ func (e *fetchScheduler) settle(result attemptResult) error {
 // marks it failed: a page failed here would be skipped by every later run. What bounds a host
 // that refuses for good is its own streak, and then the run stops asking that host.
 func (e *fetchScheduler) waitOutRefusal(job *pageJob, result attemptResult) error {
-	if err := e.cfg.Store.NoteAttempt(job.address, result.outcome); err != nil {
+	if err := e.cfg.ledger().NoteAttempt(job.address, result.outcome); err != nil {
 		return err
 	}
 	host := job.host
@@ -298,7 +298,7 @@ func (e *fetchScheduler) followRedirect(job *pageJob, result attemptResult) erro
 		job.attempts++
 		e.remaining--
 		result.outcome.Err = problem
-		return e.cfg.Store.MarkFailed(job.address, result.outcome)
+		return e.cfg.ledger().MarkFailed(job.address, result.outcome)
 	}
 	job.target = target
 	job.host = e.hostFor(target)
@@ -311,9 +311,9 @@ func (e *fetchScheduler) followRedirect(job *pageJob, result attemptResult) erro
 func (e *fetchScheduler) tryAgainOrGiveUp(job *pageJob, result attemptResult) error {
 	if job.attempts >= maxAttemptsPerRun {
 		e.remaining--
-		return e.cfg.Store.MarkFailed(job.address, result.outcome)
+		return e.cfg.ledger().MarkFailed(job.address, result.outcome)
 	}
-	if err := e.cfg.Store.NoteAttempt(job.address, result.outcome); err != nil {
+	if err := e.cfg.ledger().NoteAttempt(job.address, result.outcome); err != nil {
 		return err
 	}
 	switch {

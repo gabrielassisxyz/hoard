@@ -33,6 +33,9 @@ const (
 type RunConfig struct {
 	Store     *store.Store
 	Addresses []string
+	// Images makes the run keep the addresses as images, in the store's table for them,
+	// instead of as pages. What is not an image fails, and no cookie is ever sent.
+	Images bool
 
 	// Workers is the most requests in flight at once across all hosts.
 	Workers int
@@ -93,7 +96,7 @@ func RunWithResponseTimes(ctx context.Context, cfg RunConfig) (RunSummary, Respo
 	if err != nil {
 		return RunSummary{}, nil, err
 	}
-	if err := cfg.Store.AddPending(cfg.Addresses); err != nil {
+	if err := cfg.ledger().AddPending(cfg.Addresses); err != nil {
 		return RunSummary{}, nil, err
 	}
 	eng := newFetchScheduler(cfg)
@@ -106,6 +109,14 @@ func RunWithResponseTimes(ctx context.Context, cfg RunConfig) (RunSummary, Respo
 	return summary, eng.responseTimes, errors.Join(loopErr, summaryErr)
 }
 
+// ledger is the table the run settles its addresses in.
+func (c RunConfig) ledger() *store.Ledger {
+	if c.Images {
+		return c.Store.AssetLedger()
+	}
+	return c.Store.PageLedger()
+}
+
 func (c RunConfig) resolved() (RunConfig, error) {
 	if c.Store == nil {
 		return c, errors.New("fetch: no store to fetch into")
@@ -113,6 +124,9 @@ func (c RunConfig) resolved() (RunConfig, error) {
 	if c.Workers < 0 || c.Timeout < 0 || c.MaxBodyBytes < 0 || c.RefusalPause < 0 ||
 		c.Rate < 0 || math.IsNaN(c.Rate) || math.IsInf(c.Rate, 0) {
 		return c, errors.New("fetch: workers, rate, timeout and limits cannot be negative")
+	}
+	if c.Images && c.Cookie != "" {
+		return c, errors.New("fetch: a cookie cannot go with images, which are asked for without one")
 	}
 	if c.Cookie != "" && c.CookieHost == "" {
 		return c, errors.New("fetch: a cookie was given without the host it belongs to")
@@ -157,7 +171,7 @@ func listedOnce(addresses []string) []string {
 // queue, and settles at once the ones that cannot be requested at all.
 func (e *fetchScheduler) enqueuePending() error {
 	for _, address := range e.cfg.Addresses {
-		page, found, err := e.cfg.Store.Page(address)
+		page, found, err := e.cfg.ledger().Page(address)
 		if err != nil {
 			return err
 		}
@@ -166,7 +180,7 @@ func (e *fetchScheduler) enqueuePending() error {
 		}
 		parsed, problem := parseFetchableAddress(address)
 		if problem != "" {
-			if err := e.cfg.Store.MarkRejected(address, problem); err != nil {
+			if err := e.cfg.ledger().MarkRejected(address, problem); err != nil {
 				return err
 			}
 			continue
@@ -203,7 +217,7 @@ func (e *fetchScheduler) hostFor(parsed *url.URL) *hostQueue {
 func (e *fetchScheduler) summarize() (RunSummary, error) {
 	summary := RunSummary{Listed: len(e.cfg.Addresses)}
 	for _, address := range e.cfg.Addresses {
-		page, found, err := e.cfg.Store.Page(address)
+		page, found, err := e.cfg.ledger().Page(address)
 		if err != nil {
 			return summary, err
 		}
