@@ -193,6 +193,14 @@
   obtained is `fetch`'s exit code.
 - **A run says what it did not get.** Expected against obtained is reported, and a run
   that took less than it was asked for does not exit 0.
+- **A pace flag typed beside `--recipe` wins for that run, and the run says so.**
+  `--workers`, `--rate`, `--timeout` and `--user-agent` are one rule for all four: a flag
+  that is typed wins over the recipe for that one run, and one that is not typed leaves the
+  recipe's value, or the default when the recipe states none. Each replaced value is
+  reported on standard error, naming the flag, the value used and the recipe's, because a
+  log read later would otherwise credit the recipe with a pace it did not keep. A flag's
+  value is checked as it is without a recipe, `--list` with `--recipe` is still refused,
+  and `discover` takes no pace flags.
 - **The body is written before its row.** A body file goes in by temporary file and rename;
   only then does its ledger row become `ok`. A crash may leave a body with no row, never a
   row naming a body that is not there.

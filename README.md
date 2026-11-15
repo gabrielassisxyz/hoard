@@ -56,6 +56,13 @@ hoard list --store ~/archives/example --json \
 Every command can be run again. A page that was fetched is not fetched twice, and a
 second discovery adds only what is new.
 
+The `[fetch]` table sets the pace of a capture. To try a site at another pace once, type
+`--workers`, `--rate`, `--timeout` or `--user-agent` beside `--recipe`: a flag that is typed
+wins over the recipe for that one run, and the recipe file stays as it is. A flag that is
+not typed leaves the recipe's value. Each value that was replaced is said on standard
+error, naming the flag, the value used and the recipe's, so a log read later does not take
+that run for one at the recipe's pace.
+
 ## What it is not
 
 - Not a general crawler. Each site is described by its own small recipe.

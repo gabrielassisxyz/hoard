@@ -329,6 +329,19 @@ func TestFetchUsageSaysAPaceFlagWinsOverTheRecipe(t *testing.T) {
 	}
 }
 
+func TestReadmeAndAgentsBriefingSayAPaceFlagWinsOverTheRecipe(t *testing.T) {
+	for _, name := range []string{"README.md", "AGENTS.md"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The files are wrapped by hand, so the sentence can break across a line.
+		if text := strings.Join(strings.Fields(string(raw)), " "); !strings.Contains(text, paceFlagRuleSentence) {
+			t.Errorf("%s does not say that a pace flag %s", name, paceFlagRuleSentence)
+		}
+	}
+}
+
 func TestFetchByRecipeWithNothingDiscoveredSaysSo(t *testing.T) {
 	site := newRecipeSite(t, 0, "/a")
 	storeDir := filepath.Join(t.TempDir(), "store")
