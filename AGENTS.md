@@ -175,6 +175,9 @@
   backstop; this habit is the probabilistic one.
 - Real secrets stay out of git — only `.env.example` with fake values is committed.
 - Default branch is `main`. Work reaches it through a pull request.
+- A pull request is merged by the agent that opened it, once `bin/ci` and the pull
+  request's own checks are green. Nobody waits for a person to press merge: the pull
+  request exists for its description and its CI run, not as a review queue.
 
 ## Common hurdles
 
