@@ -23,3 +23,7 @@
 # The binary `go build -o hoard ./cmd/hoard` writes at the repository root. Anchored, so
 # it does not also hide the cmd/hoard directory.
 /hoard
+
+# What `npm ci` installs for the Node pass in markdown-pass/. The lockfile next to it is
+# committed; this is only the install it describes.
+node_modules
