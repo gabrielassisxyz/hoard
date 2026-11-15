@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/gabrielassisxyz/hoard/internal/hostkey"
 	"github.com/gabrielassisxyz/hoard/internal/store"
 )
 
@@ -47,6 +48,11 @@ func (e *fetchScheduler) attempt(ctx context.Context, job *pageJob) attemptResul
 		return attemptResult{job: job, kind: attemptFinal, outcome: store.Outcome{Err: err.Error()}}
 	}
 	req.Header.Set("User-Agent", e.cfg.UserAgent)
+	// Asked of every request, a redirect's hops included, since each hop is built here: the
+	// client follows nothing by itself and keeps no cookie jar.
+	if e.cfg.Cookie != "" && hostkey.SessionMayGoTo(e.cfg.CookieHost, job.target) {
+		req.Header.Set("Cookie", e.cfg.Cookie)
+	}
 	resp, err := e.client.Do(req)
 	if err != nil {
 		return networkFailure(ctx, attemptResult{job: job}, "request failed: "+err.Error())
