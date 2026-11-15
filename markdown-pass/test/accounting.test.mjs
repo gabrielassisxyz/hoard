@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { test } from 'node:test';
+import { outcomeOfMarkdown } from '../lib/derive-page.mjs';
 import {
   articleHtml,
   deriveInto,
@@ -124,6 +125,14 @@ test('what a failed page leaves on standard error is one line, even when its add
 });
 
 // ---- empty pages and the summary -----------------------------------------------------------
+
+// No synthetic page makes the library return white space only, so the rule is asked directly.
+test('Markdown of white space alone is empty, and white space around text is not', () => {
+  for (const blank of ['', ' ', '\n', '\n\n \t\n']) {
+    assert.equal(outcomeOfMarkdown(blank), 'empty', `${JSON.stringify(blank)} is blank`);
+  }
+  assert.equal(outcomeOfMarkdown('\n text \n'), 'derived');
+});
 
 test('a page whose Markdown is blank is counted as empty, and its files are still written', async (t) => {
   const { directory, outDir } = await fixture(t);
