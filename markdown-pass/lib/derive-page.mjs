@@ -3,6 +3,7 @@ import { zstdDecompressSync } from 'node:zlib';
 import { decodeBody } from './charset.mjs';
 import { extractPage } from './extract.mjs';
 import { markdownFileOf } from './front-matter.mjs';
+import { pointImagesAt, relativeImagePath } from './images.mjs';
 import { outputPathsOf, writeFilesAtomically } from './output.mjs';
 
 // Each step says which one it was in, so the one line a failed page leaves on standard
@@ -33,9 +34,13 @@ async function extractFrom(html, finalAddress) {
 // The Markdown is the reading copy. The cleaned HTML it was made from is written only on
 // request: nothing reads it, it can be made again from the stored page at any time, and on
 // a real capture it took nearly as much room as the compressed pages themselves.
-async function writeDerivedFiles(outDir, page, extracted, { cleanHtml = false }) {
+async function writeDerivedFiles(outDir, page, extracted, { cleanHtml = false, assets = new Map() }) {
   const paths = outputPathsOf(outDir, page.address);
-  const files = [{ path: paths.markdown, content: markdownFileOf(page, extracted) }];
+  const markdown = pointImagesAt(extracted.markdown, (address) => {
+    const file = assets.get(address);
+    return file === undefined ? undefined : relativeImagePath(paths.markdown, file);
+  });
+  const files = [{ path: paths.markdown, content: markdownFileOf(page, { ...extracted, markdown }) }];
   if (cleanHtml) {
     files.push({ path: paths.cleanHtml, content: extracted.cleanHtml });
   }
@@ -58,12 +63,19 @@ export function outcomeOfMarkdown(markdown) {
 // the output). Anything that goes wrong throws, and nothing has been left under a final name.
 //
 // note is called with anything worth saying about a page that was derived all the same.
+// options.assets maps an image's address to the path of the file the store holds for it.
 export async function derivePage(page, outDir, note = () => {}, options = {}) {
+  const extracted = await extractStoredPage(page, note);
+  await writeDerivedFiles(outDir, page, extracted, options);
+  return outcomeOfMarkdown(extracted.markdown);
+}
+
+// Reads, decodes and extracts one stored page and writes nothing, so a caller that only
+// wants to look at the result runs the very steps a derivation does.
+export async function extractStoredPage(page, note = () => {}) {
   const bytes = await readStoredBody(page.body_path);
   const html = decodeBody(bytes, page.content_type, (charset) => {
     note(`no charset is declared and the bytes are not valid UTF-8: read as ${charset}`);
   });
-  const extracted = await extractFrom(html, page.final_address);
-  await writeDerivedFiles(outDir, page, extracted, options);
-  return outcomeOfMarkdown(extracted.markdown);
+  return extractFrom(html, page.final_address);
 }
