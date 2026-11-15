@@ -93,6 +93,26 @@ the command asks whichever host an address names, never sends a cookie, and take
 creates the store when there is none. It prints `<n> listed, <n> held, <n> failed, <n> pending`
 and exits 0 only when every address is held.
 
+### Looking at a stored page
+
+A stored page is a compressed file named by a hash, and opened from disk it loses its
+stylesheets and images, because their addresses are relative to a site that a file has none
+of. `show` writes a copy a browser draws the way the site did, for as long as the site still
+serves those files:
+
+```sh
+hoard show --store ~/archives/example --address https://example.com/an-article --out page.html
+```
+
+The copy is the stored body with one `<base href="...">` element placed right after the
+opening `<head>` tag, or at the very start when the page has none, naming the address the
+answer finally came from (so a page that was redirected is drawn from where it ended up),
+and with every `integrity` attribute taken out, because a stylesheet from another origin
+fails that check without CORS and is refused. Nothing else changes, byte for byte, in any
+charset. It prints to standard output unless `--out` is given, one page per call, and never
+writes into the store. An address the store does not hold, or holds as pending or failed,
+exits 1, and so does a directory with no ledger, which it does not create.
+
 ### Capturing part of a site
 
 `discover` records every address the site lists. To take only part of it, say so when
