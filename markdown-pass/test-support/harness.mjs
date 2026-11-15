@@ -49,8 +49,8 @@ export function runDerive({ input = '', args = [] }) {
   return runCommand(process.execPath, [deriveScript, ...args], { input });
 }
 
-export function deriveInto(outDir, input) {
-  return runDerive({ input, args: ['--out', outDir] });
+export function deriveInto(outDir, input, extraArgs = []) {
+  return runDerive({ input, args: ['--out', outDir, ...extraArgs] });
 }
 
 // Writes a body the way the store does, zstd-compressed under the SHA-256 of its plain bytes,

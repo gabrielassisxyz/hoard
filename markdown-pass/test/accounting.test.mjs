@@ -39,7 +39,7 @@ test('a line that is not HTML writes no file and is counted as skipped, without 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(lastLineOf(result.stdout), '1 derived, 0 empty, 2 skipped, 0 failed');
   assert.equal(result.stderr, '');
-  assert.equal((await filesUnder(outDir)).size, 2, 'only the HTML page has files');
+  assert.equal((await filesUnder(outDir)).size, 1, 'only the HTML page has a file');
 });
 
 // ---- pages and lines that fail -------------------------------------------------------------
@@ -66,7 +66,7 @@ test('a page that cannot be read, decompressed or extracted is failed, named on 
   assert.match(complaints[0], /^derive: https:\/\/site\.test\/missing-body: cannot read the body: ENOENT/);
   assert.match(complaints[1], /^derive: https:\/\/site\.test\/not-zstd: cannot decompress the body/);
   assert.match(complaints[2], /^derive: https:\/\/site\.test\/empty-body: extraction failed/);
-  assert.equal((await filesUnder(outDir)).size, 2, 'the failed pages left no file, and the page after them was still derived');
+  assert.equal((await filesUnder(outDir)).size, 1, 'the failed pages left no file, and the page after them was still derived');
 });
 
 test('a line that is not a JSON object with the eight keys is failed and named by its line number', async (t) => {
@@ -99,7 +99,7 @@ test('a line that is not a JSON object with the eight keys is failed and named b
   }
   assert.match(complaints[5], /body_path/, 'a line missing a key says which');
   assert.match(complaints[6], /size_bytes/, 'and so does one with a key of the wrong type');
-  assert.equal((await filesUnder(outDir)).size, 4, 'the lines before and after the bad ones were derived');
+  assert.equal((await filesUnder(outDir)).size, 2, 'the lines before and after the bad ones were derived');
 });
 
 test('a line with a key beyond the eight is still a page', async (t) => {
@@ -134,7 +134,7 @@ test('Markdown of white space alone is empty, and white space around text is not
   assert.equal(outcomeOfMarkdown('\n text \n'), 'derived');
 });
 
-test('a page whose Markdown is blank is counted as empty, and its files are still written', async (t) => {
+test('a page whose Markdown is blank is counted as empty, and its file is still written', async (t) => {
   const { directory, outDir } = await fixture(t);
   const empty = await listedPage(directory, {
     body: '<html><head><title>Nothing here</title></head><body></body></html>',
@@ -147,7 +147,7 @@ test('a page whose Markdown is blank is counted as empty, and its files are stil
   assert.equal(result.status, 0, result.stderr);
   assert.equal(lastLineOf(result.stdout), '1 derived, 1 empty, 0 skipped, 0 failed');
   const files = await filesUnder(outDir);
-  assert.equal(files.size, 4, 'both pages have both files');
+  assert.equal(files.size, 2, 'both pages have their file');
   const emptyMarkdown = [...files].find(([key, content]) => key.endsWith('.md') && content.toString().includes('/empty"'));
   assert.ok(emptyMarkdown, 'the empty page has a Markdown file');
   assert.ok(emptyMarkdown[1].toString().endsWith('\n---\n\n'), 'that is the block and nothing after it');
