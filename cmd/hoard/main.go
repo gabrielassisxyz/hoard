@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -41,6 +42,8 @@ func hoardMain(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return exitCodeUsage
 	}
 	switch args[0] {
+	case "discover":
+		return runDiscoverCommand(ctx, args[1:], stdout, stderr)
 	case "fetch":
 		return runFetchCommand(ctx, args[1:], stdout, stderr)
 	case "list":
@@ -59,23 +62,31 @@ func printTopLevelUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage: hoard <command> [flags]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "commands:")
-	fmt.Fprintln(w, "  fetch   fetch a list of addresses into a raw store")
-	fmt.Fprintln(w, "  list    list the pages a store holds, one JSON object per line")
+	fmt.Fprintln(w, "  discover  find a site's addresses and record them in a store")
+	fmt.Fprintln(w, "  fetch     fetch a list of addresses, or what a recipe discovered, into a raw store")
+	fmt.Fprintln(w, "  list      list the pages a store holds, one JSON object per line")
 }
 
 type fetchOptions struct {
-	storeDir  string
-	listPath  string
-	workers   int
-	rate      float64
-	timeout   time.Duration
-	userAgent string
+	storeDir   string
+	listPath   string
+	recipePath string
+	// paceFlagsGiven names the pace flags that were typed, as opposed to left at their
+	// defaults: with a recipe the pace is the recipe's.
+	paceFlagsGiven []string
+	workers        int
+	rate           float64
+	timeout        time.Duration
+	userAgent      string
 }
 
 func runFetchCommand(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	opts, exitCode, ok := parseFetchArguments(args, stderr)
 	if !ok {
 		return exitCode
+	}
+	if opts.recipePath != "" {
+		return runFetchByRecipe(ctx, opts, stdout, stderr)
 	}
 	addresses, err := readListFile(opts.listPath)
 	if err != nil {
@@ -134,7 +145,8 @@ func parseFetchArguments(args []string, stderr io.Writer) (fetchOptions, int, bo
 	flags := flag.NewFlagSet("hoard fetch", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&opts.storeDir, "store", "", "directory that holds the ledger and the raw bodies (required)")
-	flags.StringVar(&opts.listPath, "list", "", "file with one address per line (required)")
+	flags.StringVar(&opts.listPath, "list", "", "file with one address per line")
+	flags.StringVar(&opts.recipePath, "recipe", "", "the site's recipe file: fetch what was discovered for it, at its pace")
 	flags.IntVar(&opts.workers, "workers", fetch.DefaultWorkers, "most requests in flight at once, across all hosts")
 	flags.Float64Var(&opts.rate, "rate", fetch.DefaultRate, "requests per second to any one host")
 	flags.DurationVar(&opts.timeout, "timeout", fetch.DefaultTimeout, "time allowed for one request")
@@ -148,6 +160,12 @@ func parseFetchArguments(args []string, stderr io.Writer) (fetchOptions, int, bo
 		// The flag package has already said what was wrong and printed the usage.
 		return opts, exitCodeUsage, false
 	}
+	flags.Visit(func(given *flag.Flag) {
+		switch given.Name {
+		case "workers", "rate", "timeout", "user-agent":
+			opts.paceFlagsGiven = append(opts.paceFlagsGiven, "--"+given.Name)
+		}
+	})
 	if problem := fetchArgumentProblem(opts, flags.NArg()); problem != "" {
 		fmt.Fprintf(stderr, "hoard fetch: %s\n", problem)
 		flags.Usage()
@@ -162,8 +180,12 @@ func fetchArgumentProblem(opts fetchOptions, extraArguments int) string {
 		return "unexpected arguments after the flags"
 	case opts.storeDir == "":
 		return "--store is required"
-	case opts.listPath == "":
-		return "--list is required"
+	case opts.listPath == "" && opts.recipePath == "":
+		return "--list is required, or --recipe for a site that has one"
+	case opts.listPath != "" && opts.recipePath != "":
+		return "--list and --recipe cannot be combined: a run fetches one or the other"
+	case opts.recipePath != "" && len(opts.paceFlagsGiven) > 0:
+		return strings.Join(opts.paceFlagsGiven, ", ") + " cannot be combined with --recipe: the recipe states the pace"
 	case opts.workers < 1:
 		return "--workers must be at least 1"
 	case !(opts.rate > 0) || math.IsInf(opts.rate, 0):
@@ -178,5 +200,6 @@ func fetchArgumentProblem(opts fetchOptions, extraArguments int) string {
 
 func printFetchUsage(w io.Writer, flags *flag.FlagSet) {
 	fmt.Fprintln(w, "usage: hoard fetch --store <dir> --list <file> [--workers N] [--rate R] [--timeout D] [--user-agent S]")
+	fmt.Fprintln(w, "       hoard fetch --store <dir> --recipe <file>")
 	flags.PrintDefaults()
 }

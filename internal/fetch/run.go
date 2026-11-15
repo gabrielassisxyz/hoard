@@ -39,6 +39,13 @@ type RunConfig struct {
 	Timeout   time.Duration
 	UserAgent string
 
+	// Cookie is the value of the Cookie header for the one site named by CookieHost. Empty
+	// means the run is signed in nowhere.
+	Cookie string
+	// CookieHost is that site's key, as hostkey.Of gives it. The cookie goes to requests
+	// hostkey.SessionMayGoTo allows for it and to no other.
+	CookieHost string
+
 	// Limits the command line does not offer. They are fields so a test can exercise them
 	// without waiting out the real values.
 	MaxBodyBytes int64
@@ -95,6 +102,9 @@ func (c RunConfig) resolved() (RunConfig, error) {
 	if c.Workers < 0 || c.Timeout < 0 || c.MaxBodyBytes < 0 || c.RefusalPause < 0 ||
 		c.Rate < 0 || math.IsNaN(c.Rate) || math.IsInf(c.Rate, 0) {
 		return c, errors.New("fetch: workers, rate, timeout and limits cannot be negative")
+	}
+	if c.Cookie != "" && c.CookieHost == "" {
+		return c, errors.New("fetch: a cookie was given without the host it belongs to")
 	}
 	if c.MaxBodyBytes > largestBodyLimit {
 		return c, fmt.Errorf("fetch: a body limit of %d bytes is above the %d that can be enforced", c.MaxBodyBytes, int64(largestBodyLimit))
