@@ -33,7 +33,13 @@ func runStatusCommand(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "hoard status: %v\n", err)
 		return exitCodeIncomplete
 	}
+	assetCounts, err := st.AssetLedger().Counts()
+	if err != nil {
+		fmt.Fprintf(stderr, "hoard status: %v\n", err)
+		return exitCodeIncomplete
+	}
 	fmt.Fprintf(stdout, "%d held, %d failed, %d pending\n", counts.Held, counts.Failed, counts.Pending)
+	fmt.Fprintf(stdout, "assets: %d held, %d failed, %d pending\n", assetCounts.Held, assetCounts.Failed, assetCounts.Pending)
 	for _, page := range pages {
 		if page.State == store.StateFailed {
 			fmt.Fprintf(stdout, "failed: %s: %s\n", page.Address, page.LastError)

@@ -1,9 +1,10 @@
 // Package store is the raw capture of a run: every response body, compressed and named by
 // its SHA-256, plus a ledger that records what became of each requested address.
 //
-// The store is a directory. It holds ledger.db and the bodies under
-// raw/<first two hex digits>/<sha256>.zst. Nothing here parses or rewrites a body; what
-// went in is what comes out.
+// The store is a directory. It holds ledger.db, the page bodies under
+// raw/<first two hex digits>/<sha256>.zst and the images under
+// assets/<first two hex digits>/<sha256><extension>. Nothing here parses or rewrites a
+// body; what went in is what comes out.
 package store
 
 import (
@@ -82,9 +83,38 @@ func openLedger(path string) (*sql.DB, error) {
 	// SQLite admits one writer at a time. One connection makes the callers' writes queue up
 	// in the pool instead of racing each other for the file lock.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(ledgerSchema); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("prepare ledger: %w", err)
+	for _, table := range []string{pagesTable, assetsTable} {
+		if _, err := db.Exec(fmt.Sprintf(tableSchema, table)); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("prepare ledger: %w", err)
+		}
 	}
 	return db, nil
 }
+
+// The methods below are the page ledger's, so that what only deals with pages keeps asking
+// the store and never has to know there is another table.
+
+func (s *Store) AddPending(addresses []string) error { return s.PageLedger().AddPending(addresses) }
+
+func (s *Store) Page(address string) (Page, bool, error) { return s.PageLedger().Page(address) }
+
+func (s *Store) Pages() ([]Page, error) { return s.PageLedger().Pages() }
+
+func (s *Store) NoteAttempt(address string, outcome Outcome) error {
+	return s.PageLedger().NoteAttempt(address, outcome)
+}
+
+func (s *Store) MarkFailed(address string, outcome Outcome) error {
+	return s.PageLedger().MarkFailed(address, outcome)
+}
+
+func (s *Store) MarkRejected(address, reason string) error {
+	return s.PageLedger().MarkRejected(address, reason)
+}
+
+func (s *Store) MarkOK(address string, outcome Outcome) error {
+	return s.PageLedger().MarkOK(address, outcome)
+}
+
+func (s *Store) Counts() (Counts, error) { return s.PageLedger().Counts() }

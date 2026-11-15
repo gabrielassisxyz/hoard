@@ -42,6 +42,8 @@ func hoardMain(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return exitCodeUsage
 	}
 	switch args[0] {
+	case "assets":
+		return runAssetsCommand(ctx, args[1:], stdout, stderr)
 	case "discover":
 		return runDiscoverCommand(ctx, args[1:], stdout, stderr)
 	case "fetch":
@@ -66,9 +68,10 @@ func printTopLevelUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage: hoard <command> [flags]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "commands:")
+	fmt.Fprintln(w, "  assets    fetch a list of image addresses into a store, apart from its pages")
 	fmt.Fprintln(w, "  discover  find a site's addresses and record them in a store")
 	fmt.Fprintln(w, "  fetch     fetch a list of addresses, or what a recipe discovered, into a raw store")
-	fmt.Fprintln(w, "  list      list the pages a store holds, one JSON object per line")
+	fmt.Fprintln(w, "  list      list the pages a store holds, or with --assets its images, one JSON object per line")
 	fmt.Fprintln(w, "  status    say how many addresses a store holds, and why the failed ones failed")
 	fmt.Fprintln(w, "  verify    check a store against the criterion its recipe states")
 }

@@ -15,8 +15,8 @@ func (c Counts) Total() int {
 }
 
 // Counts reads the ledger's size by state without loading its rows.
-func (s *Store) Counts() (Counts, error) {
-	rows, err := s.db.Query(`SELECT state, COUNT(*) FROM pages GROUP BY state`)
+func (l *Ledger) Counts() (Counts, error) {
+	rows, err := l.s.db.Query(`SELECT state, COUNT(*) FROM ` + l.table + ` GROUP BY state`)
 	if err != nil {
 		return Counts{}, fmt.Errorf("count the ledger: %w", err)
 	}

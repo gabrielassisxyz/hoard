@@ -106,6 +106,9 @@ func redirectTarget(resp *http.Response) (*url.URL, bool) {
 // keepBody reads the answer to the end, within the size limit, and stores it. The body
 // is what the transport hands over after its own decoding, byte for byte.
 func (e *fetchScheduler) keepBody(ctx context.Context, resp *http.Response, result attemptResult, sentAt time.Time) attemptResult {
+	if e.cfg.Images && !store.IsImageType(result.outcome.ContentType) {
+		return refuseNonImage(result)
+	}
 	limit := e.cfg.MaxBodyBytes
 	if resp.ContentLength > limit {
 		return refuseOversizedBody(result, limit)
@@ -120,7 +123,7 @@ func (e *fetchScheduler) keepBody(ctx context.Context, resp *http.Response, resu
 	if int64(len(body)) > limit {
 		return refuseOversizedBody(result, limit)
 	}
-	ref, err := e.cfg.Store.PutBody(body)
+	ref, err := e.cfg.ledger().PutBody(body, result.job.address, result.outcome.ContentType)
 	if err != nil {
 		result.kind = attemptBroken
 		result.storeErr = err
@@ -129,6 +132,13 @@ func (e *fetchScheduler) keepBody(ctx context.Context, resp *http.Response, resu
 	result.kind = attemptStored
 	result.outcome.Body = ref
 	result.responseTime = answeredIn
+	return result
+}
+
+// An error page served with status 200 is not a picture, and its body is not read.
+func refuseNonImage(result attemptResult) attemptResult {
+	result.kind = attemptFinal
+	result.outcome.Err = fmt.Sprintf("not an image: Content-Type is %q", result.outcome.ContentType)
 	return result
 }
 

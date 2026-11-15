@@ -148,7 +148,7 @@ func TestStatusSaysWhereACaptureStands(t *testing.T) {
 	storeDir := site.discovered(t, recipePath)
 
 	before := runHoardBinary(t, "status", "--store", storeDir)
-	if before.exitCode != 0 || strings.TrimSpace(before.stdout) != "0 held, 0 failed, 3 pending" {
+	if before.exitCode != 0 || strings.TrimSpace(before.stdout) != "0 held, 0 failed, 3 pending\nassets: 0 held, 0 failed, 0 pending" {
 		t.Errorf("before the fetch: exit code %d, stdout %q", before.exitCode, before.stdout)
 	}
 
@@ -164,8 +164,8 @@ func TestStatusSaysWhereACaptureStands(t *testing.T) {
 		t.Errorf("first line = %q", lines[0])
 	}
 	wantFailed := "failed: " + site.URL + "/gone/c: HTTP 404 Not Found"
-	if len(lines) != 2 || lines[1] != wantFailed {
-		t.Errorf("failed rows = %q, want exactly %q", lines[1:], wantFailed)
+	if len(lines) != 3 || lines[1] != "assets: 0 held, 0 failed, 0 pending" || lines[2] != wantFailed {
+		t.Errorf("lines after the page line = %q, want the assets line and exactly %q", lines[1:], wantFailed)
 	}
 	if site.hitsOn("/a") != hitsBefore {
 		t.Error("status asked the site for a page; it reads the store only")
