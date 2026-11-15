@@ -72,9 +72,10 @@ func TestAssetsListAndStatusKeepImagesApartFromPages(t *testing.T) {
 	statusBefore := runHoardBinary(t, "status", "--store", storeDir)
 
 	first, second := newImageHost(t), newImageHost(t)
-	list := writeListFile(t, second.URL+"/b.png", first.URL+"/a.gif")
+	// The error page fails its address, and a failed image is not one the store holds.
+	list := writeListFile(t, second.URL+"/b.png", first.URL+"/a.gif", first.URL+"/missing")
 	run := runHoardBinary(t, "assets", "--store", storeDir, "--list", list, "--rate", "1000")
-	if run.exitCode != 0 || strings.TrimSpace(run.stdout) != "2 listed, 2 held, 0 failed, 0 pending" {
+	if run.exitCode != 1 || strings.TrimSpace(run.stdout) != "3 listed, 2 held, 1 failed, 0 pending" {
 		t.Fatalf("assets: exit %d, stdout %q, stderr %q", run.exitCode, run.stdout, run.stderr)
 	}
 	if first.cookieSeen || second.cookieSeen {
@@ -125,7 +126,7 @@ func TestAssetsListAndStatusKeepImagesApartFromPages(t *testing.T) {
 	}
 	statusAfter := strings.Split(strings.TrimSpace(runHoardBinary(t, "status", "--store", storeDir).stdout), "\n")
 	statusPageLine := strings.Split(strings.TrimSpace(statusBefore.stdout), "\n")[0]
-	if statusAfter[0] != statusPageLine || statusAfter[1] != "assets: 2 held, 0 failed, 0 pending" {
+	if statusAfter[0] != statusPageLine || statusAfter[1] != "assets: 2 held, 1 failed, 0 pending" {
 		t.Errorf("status after = %q, want the page line %q then the assets line", statusAfter, statusPageLine)
 	}
 }
