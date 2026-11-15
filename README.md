@@ -105,7 +105,8 @@ hoard show --store ~/archives/example --address https://example.com/an-article -
 ```
 
 The copy is the stored body with one `<base href="...">` element placed right after the
-opening `<head>` tag, or at the very start when the page has none, naming the address the
+opening `<head>` tag, or at the start when the page has none (after its doctype, so the
+browser does not fall back to quirks mode), naming the address the
 answer finally came from (so a page that was redirected is drawn from where it ended up),
 and with every `integrity` attribute taken out, because a stylesheet from another origin
 fails that check without CORS and is refused. Nothing else changes, byte for byte, in any

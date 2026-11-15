@@ -99,13 +99,25 @@ func TestShowRemovesIntegrityAfterAScriptThatMentionsIt(t *testing.T) {
 	}
 }
 
+// A page with no head tag gets the element at its start, but never before a byte order mark
+// or the doctype: either would change how the browser reads the page.
 func TestShowWithoutHeadStartsWithBase(t *testing.T) {
-	in := "<!doctype html><p>no head here</p>"
-	if got, want := string(makeViewable([]byte(in), "https://site.test/post/")), showBase+in; got != want {
-		t.Errorf("\ngot  %q\nwant %q", got, want)
+	cases := map[string]struct{ before, after string }{
+		"no doctype":          {"", "<p>no head here</p>"},
+		"doctype":             {"<!doctype html>", "<p>no head here</p>"},
+		"upper-case doctype":  {"\n<!DOCTYPE html>", "\n<p>no head here</p>"},
+		"byte order mark":     {"\xef\xbb\xbf", "<p>no head here</p>"},
+		"mark and doctype":    {"\xef\xbb\xbf<!doctype html>", "<p>no head here</p>"},
+		"doctype never ended": {"", "<!doctype html"},
+		"empty body":          {"", ""},
 	}
-	if got := makeViewable(nil, "https://site.test/post/"); string(got) != showBase {
-		t.Errorf("an empty body gave %q", got)
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := string(makeViewable([]byte(c.before+c.after), "https://site.test/post/"))
+			if want := c.before + showBase + c.after; got != want {
+				t.Errorf("\ngot  %q\nwant %q", got, want)
+			}
+		})
 	}
 }
 

@@ -192,7 +192,9 @@
   no message quotes its content.
 - **A shown page is the stored bytes plus one element.** `show` works on bytes, never on a
   parsed page, so the body is not re-encoded: it inserts `<base href>` after the opening
-  `<head>` tag (at the very start when there is none) and removes `integrity` attributes
+  `<head>` tag (when there is none, at the start, but after a byte order mark and a leading
+  doctype, since either moved would change how the browser reads the page) and removes
+  `integrity` attributes
   inside tags, skipping comments, `<script>` and `<style>`. It reads the store and writes
   nothing into it.
 - **A derived file is named after its address, never after its body.** The name is the

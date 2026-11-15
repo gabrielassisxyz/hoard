@@ -135,11 +135,11 @@ func makeViewable(body []byte, baseAddress string) []byte {
 type byteSpan struct{ start, end int }
 
 // scanForEdits finds where the <base> goes, which is just after the first opening head tag,
-// or 0 when there is none, and the spans of every integrity attribute with the whitespace
-// before it. Comments and the bodies of script and style elements are skipped, so a tag
-// written inside one is not taken for a tag.
+// or the start of the page when there is none, and the spans of every integrity attribute
+// with the whitespace before it. Comments and the bodies of script and style elements are
+// skipped, so a tag written inside one is not taken for a tag.
 func scanForEdits(body []byte) (int, []byteSpan) {
-	insertAt, headSeen := 0, false
+	insertAt, headSeen := startOfPage(body), false
 	var removals []byteSpan
 	for i := 0; i < len(body); {
 		next := bytes.IndexByte(body[i:], '<')
@@ -256,6 +256,28 @@ func precedingSpaceStart(body []byte, at int) int {
 		at--
 	}
 	return at
+}
+
+// startOfPage is where a page with no head tag gets its <base>: after a byte order mark,
+// which a browser reads as the charset only at the very first byte, and after a doctype
+// that opens the page, since anything before the doctype puts the browser in quirks mode.
+func startOfPage(body []byte) int {
+	at := 0
+	if bytes.HasPrefix(body, []byte("\xef\xbb\xbf")) {
+		at = 3
+	}
+	opening := at
+	for opening < len(body) && isTagSpace(body[opening]) {
+		opening++
+	}
+	if len(body)-opening < len("<!doctype") || !strings.EqualFold(string(body[opening:opening+len("<!doctype")]), "<!doctype") {
+		return at
+	}
+	end := bytes.IndexByte(body[opening:], '>')
+	if end < 0 {
+		return at
+	}
+	return opening + end + 1
 }
 
 func endOfComment(body []byte, start int) int {
