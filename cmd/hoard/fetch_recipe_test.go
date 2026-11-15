@@ -131,10 +131,12 @@ func TestFetchByRecipeUsesTheRecipesWorkers(t *testing.T) {
 }
 
 func TestFetchByRecipeUsesTheRecipesRate(t *testing.T) {
-	site := newRecipeSite(t, 0, "/a", "/b", "/c", "/d")
-	// The sitemap and four pages at 5 a second are four gaps of 200ms. Only a lower bound
-	// is asserted: a loaded machine makes a run slower, never faster than its pace.
-	recipePath := site.recipe(t, "rate = 5.0")
+	site := newRecipeSite(t, 0, "/a", "/b", "/c")
+	// Only a lower bound is asserted: a loaded machine makes a run slower, never faster than
+	// its pace. So the recipe's rate is slower than the default of 2 a second, or a bound
+	// that the default also meets could not tell the one from the other: three pages at 1 a
+	// second are two gaps of a second, and at the default they would take one in all.
+	recipePath := site.recipe(t, "rate = 1.0")
 	storeDir := site.discovered(t, recipePath)
 	if run := runHoardBinary(t, "fetch", "--store", storeDir, "--recipe", recipePath); run.exitCode != 0 {
 		t.Fatalf("exit code %d, stderr: %s", run.exitCode, run.stderr)
@@ -142,11 +144,11 @@ func TestFetchByRecipeUsesTheRecipesRate(t *testing.T) {
 	site.mu.Lock()
 	pages := append([]time.Time(nil), site.arrivals[1:]...)
 	site.mu.Unlock()
-	if len(pages) != 4 {
-		t.Fatalf("the site saw %d page requests, want 4", len(pages))
+	if len(pages) != 3 {
+		t.Fatalf("the site saw %d page requests, want 3", len(pages))
 	}
-	if span := pages[3].Sub(pages[0]); span < 500*time.Millisecond {
-		t.Errorf("4 pages arrived within %v; at the recipe's 5 a second they take at least 600ms", span)
+	if span := pages[2].Sub(pages[0]); span < 1500*time.Millisecond {
+		t.Errorf("3 pages arrived within %v; at the recipe's 1 a second they take at least 2s", span)
 	}
 }
 
