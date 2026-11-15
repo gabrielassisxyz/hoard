@@ -241,6 +241,7 @@
 | `bin/worktree` falls back to `master` when `origin/HEAD` is unset, which a fresh clone can lack; run `git remote set-head origin -a` and check the banner says `main` | tripwire | none yet |
 | `node --test` runs every file under a directory named `test`, so a shared helper put there is run as a test; helpers live in `markdown-pass/test-support/` | tripwire | none yet |
 | A test whose mutation survives is the suspect before the code is: a fragment check ran under a pattern that already excluded fragments, and a failing command printed an off-site address, so both went red for a reason other than the rule they named | tripwire | none yet |
+| A lower bound on elapsed time tells a recipe's rate from the default only when the recipe is slower than the default: a faster rate passes every bound the default also meets, so the test that the recipe's rate is used states a rate below the default | tripwire | none yet |
 | A test that asserts an upper bound on elapsed time fails on a loaded CI runner, because `go test` compiles the pure-Go SQLite beside it and can starve a test for hundreds of milliseconds; assert lower bounds, or read the property off the code (a limiter's burst, which host owns which queue) | tripwire | none yet |
 
 **A hurdle promoted to a gate is deleted from this table, not duplicated.** The gate is the
