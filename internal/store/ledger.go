@@ -23,8 +23,8 @@ var ErrPageNotPending = errors.New("page is not pending")
 // the name and size of a body: it holds even for a writer that bypasses this package.
 // Each operand is tested for NULL on its own because a CHECK passes when it evaluates to
 // NULL, and length(NULL) = 64 is NULL, not false.
-const ledgerSchema = `
-CREATE TABLE IF NOT EXISTS pages (
+const tableSchema = `
+CREATE TABLE IF NOT EXISTS %s (
     address       TEXT PRIMARY KEY,
     final_address TEXT,
     http_status   INTEGER,
@@ -71,13 +71,13 @@ type Outcome struct {
 
 // AddPending gives every address a row. An address that already has one keeps it, in
 // whatever state it reached, so listing an address again never reopens it.
-func (s *Store) AddPending(addresses []string) error {
-	tx, err := s.db.Begin()
+func (l *Ledger) AddPending(addresses []string) error {
+	tx, err := l.s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("add addresses to the ledger: %w", err)
 	}
 	defer tx.Rollback()
-	insert, err := tx.Prepare(`INSERT OR IGNORE INTO pages (address) VALUES (?)`)
+	insert, err := tx.Prepare(`INSERT OR IGNORE INTO ` + l.table + ` (address) VALUES (?)`)
 	if err != nil {
 		return fmt.Errorf("add addresses to the ledger: %w", err)
 	}
@@ -91,8 +91,8 @@ func (s *Store) AddPending(addresses []string) error {
 }
 
 // Page returns the row for address, and false when there is none.
-func (s *Store) Page(address string) (Page, bool, error) {
-	row := s.db.QueryRow(`SELECT `+pageColumns+` FROM pages WHERE address = ?`, address)
+func (l *Ledger) Page(address string) (Page, bool, error) {
+	row := l.s.db.QueryRow(`SELECT `+pageColumns+` FROM `+l.table+` WHERE address = ?`, address)
 	page, err := scanPage(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Page{}, false, nil
@@ -104,8 +104,8 @@ func (s *Store) Page(address string) (Page, bool, error) {
 }
 
 // Pages returns every row, ordered by address.
-func (s *Store) Pages() ([]Page, error) {
-	rows, err := s.db.Query(`SELECT ` + pageColumns + ` FROM pages ORDER BY address`)
+func (l *Ledger) Pages() ([]Page, error) {
+	rows, err := l.s.db.Query(`SELECT ` + pageColumns + ` FROM ` + l.table + ` ORDER BY address`)
 	if err != nil {
 		return nil, fmt.Errorf("read the ledger: %w", err)
 	}
@@ -123,45 +123,45 @@ func (s *Store) Pages() ([]Page, error) {
 
 // NoteAttempt records an attempt that did not settle the address: it stays pending, with
 // one more attempt counted and the attempt's facts on the row.
-func (s *Store) NoteAttempt(address string, outcome Outcome) error {
-	return s.settle(address, StatePending, outcome)
+func (l *Ledger) NoteAttempt(address string, outcome Outcome) error {
+	return l.settle(address, StatePending, outcome)
 }
 
 // MarkFailed settles the address as failed, counting the attempt that did it.
-func (s *Store) MarkFailed(address string, outcome Outcome) error {
-	return s.settle(address, StateFailed, outcome)
+func (l *Ledger) MarkFailed(address string, outcome Outcome) error {
+	return l.settle(address, StateFailed, outcome)
 }
 
 // MarkRejected settles an address that was never requested because it cannot be, such as
 // text that is not a web address. No attempt is counted, since none was made.
-func (s *Store) MarkRejected(address, reason string) error {
-	return s.updatePending(address,
-		`UPDATE pages SET state = 'failed', last_error = ? WHERE address = ? AND state = 'pending'`,
+func (l *Ledger) MarkRejected(address, reason string) error {
+	return l.updatePending(address,
+		`UPDATE `+l.table+` SET state = 'failed', last_error = ? WHERE address = ? AND state = 'pending'`,
 		reason, address)
 }
 
 // MarkOK settles the address as held. It refuses unless outcome names a body whose file is
 // already in the store, which is what makes "body first, row second" the only order a
 // caller can follow: a crash can leave a body with no row, never a row with no body.
-func (s *Store) MarkOK(address string, outcome Outcome) error {
+func (l *Ledger) MarkOK(address string, outcome Outcome) error {
 	ref := outcome.Body
 	if !isSHA256Hex(ref.SHA256) || ref.Size < 0 {
 		return fmt.Errorf("mark %q ok: the outcome names no stored body", address)
 	}
-	if _, err := os.Stat(s.bodyPath(ref.SHA256)); err != nil {
+	if _, err := os.Stat(l.bodyPath(address, outcome)); err != nil {
 		return fmt.Errorf("mark %q ok: body %s is not in the store: %w", address, ref.SHA256, err)
 	}
-	return s.updatePending(address,
-		`UPDATE pages SET state = 'ok', attempts = attempts + 1, final_address = ?, http_status = ?,
+	return l.updatePending(address,
+		`UPDATE `+l.table+` SET state = 'ok', attempts = attempts + 1, final_address = ?, http_status = ?,
 		    fetched_at = ?, content_type = ?, sha256 = ?, size_bytes = ?, last_error = NULL
 		 WHERE address = ? AND state = 'pending'`,
 		nullableText(outcome.FinalAddress), nullableInt(outcome.HTTPStatus), nullableTime(outcome.FetchedAt),
 		nullableText(outcome.ContentType), ref.SHA256, ref.Size, address)
 }
 
-func (s *Store) settle(address, state string, o Outcome) error {
-	return s.updatePending(address,
-		`UPDATE pages SET state = ?, attempts = attempts + 1, final_address = ?, http_status = ?,
+func (l *Ledger) settle(address, state string, o Outcome) error {
+	return l.updatePending(address,
+		`UPDATE `+l.table+` SET state = ?, attempts = attempts + 1, final_address = ?, http_status = ?,
 		    fetched_at = ?, content_type = ?, last_error = ?
 		 WHERE address = ? AND state = 'pending'`,
 		state, nullableText(o.FinalAddress), nullableInt(o.HTTPStatus), nullableTime(o.FetchedAt),
@@ -170,8 +170,8 @@ func (s *Store) settle(address, state string, o Outcome) error {
 
 // updatePending runs an UPDATE written to match only pending rows and reports a row that
 // was missing or already settled instead of silently changing nothing.
-func (s *Store) updatePending(address, query string, args ...any) error {
-	result, err := s.db.Exec(query, args...)
+func (l *Ledger) updatePending(address, query string, args ...any) error {
+	result, err := l.s.db.Exec(query, args...)
 	if err != nil {
 		return fmt.Errorf("update %q in the ledger: %w", address, err)
 	}
