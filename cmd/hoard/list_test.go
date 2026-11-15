@@ -72,9 +72,9 @@ func seedListStore(t *testing.T, dir string, seeds []listSeed) {
 	}
 }
 
-// runHoardBinaryIn is runHoardBinary with a working directory, for the one check that
+// runListBinaryInDir is runHoardBinary with a working directory, for the one check that
 // needs the command to resolve a relative path.
-func runHoardBinaryIn(t *testing.T, workDir string, args ...string) hoardRun {
+func runListBinaryInDir(t *testing.T, workDir string, args ...string) hoardRun {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -95,7 +95,7 @@ func runHoardBinaryIn(t *testing.T, workDir string, args ...string) hoardRun {
 	return result
 }
 
-func listedObjects(t *testing.T, stdout string) []map[string]any {
+func listTestObjects(t *testing.T, stdout string) []map[string]any {
 	t.Helper()
 	if stdout == "" {
 		return nil
@@ -114,7 +114,7 @@ func listedObjects(t *testing.T, stdout string) []map[string]any {
 	return objects
 }
 
-func listedAddresses(objects []map[string]any) []string {
+func listTestAddresses(objects []map[string]any) []string {
 	addresses := make([]string, len(objects))
 	for i, object := range objects {
 		addresses[i], _ = object["address"].(string)
@@ -122,9 +122,9 @@ func listedAddresses(objects []map[string]any) []string {
 	return addresses
 }
 
-// keyOrderOfLine reads the keys of one JSON object in the order they were written, which a
+// listTestKeyOrder reads the keys of one JSON object in the order they were written, which a
 // map cannot say.
-func keyOrderOfLine(t *testing.T, line string) []string {
+func listTestKeyOrder(t *testing.T, line string) []string {
 	t.Helper()
 	decoder := json.NewDecoder(strings.NewReader(line))
 	if opening, err := decoder.Token(); err != nil || opening != json.Delim('{') {
@@ -145,14 +145,14 @@ func keyOrderOfLine(t *testing.T, line string) []string {
 	return keys
 }
 
-func hexOfSHA256(text string) string {
+func listTestSHA256Hex(text string) string {
 	sum := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(sum[:])
 }
 
-// decodeBodyFile decompresses a body file with the zstd package directly, so a path that
+// listTestDecodeBodyFile decompresses a body file with the zstd package directly, so a path that
 // points at the wrong file, or at one in another format, shows up as a wrong body.
-func decodeBodyFile(t *testing.T, path string) string {
+func listTestDecodeBodyFile(t *testing.T, path string) string {
 	t.Helper()
 	compressed, err := os.ReadFile(path)
 	if err != nil {
@@ -170,9 +170,9 @@ func decodeBodyFile(t *testing.T, path string) string {
 	return string(plain)
 }
 
-// treeOfListTest lists everything under root, directories included, with a hash of each
+// listTestTree lists everything under root, directories included, with a hash of each
 // file, so "created nothing" and "changed nothing" are both checked.
-func treeOfListTest(t *testing.T, root string) []string {
+func listTestTree(t *testing.T, root string) []string {
 	t.Helper()
 	var entries []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -188,7 +188,7 @@ func treeOfListTest(t *testing.T, root string) []string {
 		if err != nil {
 			return err
 		}
-		entries = append(entries, rel+" "+hexOfSHA256(string(content)))
+		entries = append(entries, rel+" "+listTestSHA256Hex(string(content)))
 		return nil
 	})
 	if err != nil {
@@ -215,7 +215,7 @@ func TestListPrintsOneLinePerHeldPageInAddressOrder(t *testing.T) {
 	if result.exitCode != 0 || result.stderr != "" {
 		t.Fatalf("exit %d, stderr %q", result.exitCode, result.stderr)
 	}
-	got := listedAddresses(listedObjects(t, result.stdout))
+	got := listTestAddresses(listTestObjects(t, result.stdout))
 	want := []string{"https://site.test/a", "https://site.test/c", "https://site.test/e"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("listed %v, want %v: the held pages, by address, and nothing for pending or failed rows", got, want)
@@ -237,7 +237,7 @@ func TestListLinesHaveExactlyTheDocumentedKeysInOrder(t *testing.T) {
 		t.Fatalf("%d lines, want 2: %q", len(lines), result.stdout)
 	}
 	for _, line := range lines {
-		if got := keyOrderOfLine(t, line); !slices.Equal(got, want) {
+		if got := listTestKeyOrder(t, line); !slices.Equal(got, want) {
 			t.Errorf("keys of %s are %v, want %v", line, got, want)
 		}
 	}
@@ -282,14 +282,14 @@ func TestListLinesCarryTheLedgersFacts(t *testing.T) {
 			"https://site.test/plain?x=1&y=2", "2026-11-14T19:41:03Z", "", "<p>no redirect, no content type</p>",
 		},
 	}
-	objects := listedObjects(t, result.stdout)
+	objects := listTestObjects(t, result.stdout)
 	if len(objects) != len(want) {
 		t.Fatalf("%d lines, want %d", len(objects), len(want))
 	}
 	for _, object := range objects {
 		address := object["address"].(string)
 		expected := want[address]
-		sha := hexOfSHA256(expected.body)
+		sha := listTestSHA256Hex(expected.body)
 		if object["final_address"] != expected.finalAddress {
 			t.Errorf("%s: final_address = %v, want %q", address, object["final_address"], expected.finalAddress)
 		}
@@ -313,7 +313,7 @@ func TestListLinesCarryTheLedgersFacts(t *testing.T) {
 		if bodyPath != wantPath {
 			t.Errorf("%s: body_path = %q, want %q", address, bodyPath, wantPath)
 		}
-		if got := decodeBodyFile(t, bodyPath); got != expected.body {
+		if got := listTestDecodeBodyFile(t, bodyPath); got != expected.body {
 			t.Errorf("%s: the file at body_path holds %q, want %q", address, got, expected.body)
 		}
 	}
@@ -325,12 +325,12 @@ func TestListGivesAbsoluteBodyPathsForARelativeStore(t *testing.T) {
 		{address: "https://site.test/a", state: store.StateOK, body: "a", fetchedAt: time.Now()},
 	})
 
-	result := runHoardBinaryIn(t, parent, "list", "--store", "store", "--json")
+	result := runListBinaryInDir(t, parent, "list", "--store", "store", "--json")
 
 	if result.exitCode != 0 {
 		t.Fatalf("exit %d: %s", result.exitCode, result.stderr)
 	}
-	objects := listedObjects(t, result.stdout)
+	objects := listTestObjects(t, result.stdout)
 	if len(objects) != 1 {
 		t.Fatalf("%d lines, want 1: %q", len(objects), result.stdout)
 	}
@@ -338,7 +338,7 @@ func TestListGivesAbsoluteBodyPathsForARelativeStore(t *testing.T) {
 	if !filepath.IsAbs(bodyPath) {
 		t.Fatalf("body_path %q is not absolute", bodyPath)
 	}
-	if got := decodeBodyFile(t, bodyPath); got != "a" {
+	if got := listTestDecodeBodyFile(t, bodyPath); got != "a" {
 		t.Errorf("the file at body_path holds %q, want %q", got, "a")
 	}
 }
@@ -363,14 +363,14 @@ func TestListLeavesTheStoreExactlyAsItFoundIt(t *testing.T) {
 		{address: "https://site.test/a", state: store.StateOK, body: "a", fetchedAt: time.Now()},
 		{address: "https://site.test/b", state: store.StatePending},
 	})
-	before := treeOfListTest(t, dir)
+	before := listTestTree(t, dir)
 
 	result := runHoardBinary(t, "list", "--store", dir, "--json")
 
 	if result.exitCode != 0 {
 		t.Fatalf("exit %d: %s", result.exitCode, result.stderr)
 	}
-	if after := treeOfListTest(t, dir); !slices.Equal(before, after) {
+	if after := listTestTree(t, dir); !slices.Equal(before, after) {
 		t.Errorf("listing changed the store:\nbefore %v\nafter  %v", before, after)
 	}
 }
@@ -391,7 +391,7 @@ func TestListExitsOneAndCreatesNothingWhenThereIsNoStore(t *testing.T) {
 
 	for name, dir := range map[string]string{"missing directory": mistyped, "empty directory": emptyDir, "directory of something else": otherDir} {
 		t.Run(name, func(t *testing.T) {
-			before := treeOfListTest(t, root)
+			before := listTestTree(t, root)
 
 			result := runHoardBinary(t, "list", "--store", dir, "--json")
 
@@ -401,7 +401,7 @@ func TestListExitsOneAndCreatesNothingWhenThereIsNoStore(t *testing.T) {
 			if !strings.Contains(result.stderr, "hoard list:") || !strings.Contains(result.stderr, dir) {
 				t.Errorf("stderr does not say what was wrong with %s: %q", dir, result.stderr)
 			}
-			if after := treeOfListTest(t, root); !slices.Equal(before, after) {
+			if after := listTestTree(t, root); !slices.Equal(before, after) {
 				t.Errorf("the failed listing changed the tree:\nbefore %v\nafter  %v", before, after)
 			}
 		})
