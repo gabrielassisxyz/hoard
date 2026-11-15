@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { charsetDeclaredInMeta, decodeBody } from '../lib/charset.mjs';
+import { charsetDeclaredInMeta, decodeBody, LEGACY_FALLBACK } from '../lib/charset.mjs';
 import {
   articleHtml,
   deriveInto,
@@ -129,9 +129,54 @@ test('windows-1252 is decoded as the web means it, not as strict Latin-1', () =>
 test('an unknown charset, or bytes that are not in the charset, cannot be decoded', () => {
   assert.throws(() => decodeBody(utf8('<p>x</p>'), 'text/html; charset=no-such-charset'), /unsupported charset "no-such-charset"/);
   assert.throws(() => decodeBody(utf8('<meta charset="no-such-charset">'), 'text/html'), /unsupported charset "no-such-charset"/);
-  // Latin-1 bytes under the default: a replacement character here would be silent damage.
-  assert.throws(() => decodeBody(latin1('<p>café</p>'), 'text/html'), /not valid utf-8/);
+  // A page that says it is UTF-8 and is not: a replacement character here would be silent
+  // damage, and so would a guess made over what the page declared.
   assert.throws(() => decodeBody(latin1('<p>café</p>'), 'text/html; charset=utf-8'), /not valid utf-8/);
+  assert.throws(() => decodeBody(latin1('<meta charset="utf-8"><p>café</p>'), 'text/html'), /not valid utf-8/);
+});
+
+// ---- a page that declares nothing ----------------------------------------------------------
+
+// Calls decodeBody and returns the text with every charset the fallback was noted for.
+function decodeNoting(bytes, contentType) {
+  const noted = [];
+  const text = decodeBody(bytes, contentType, (charset) => noted.push(charset));
+  return { text, noted };
+}
+
+test('a page that declares nothing and is not valid UTF-8 is read as windows-1252, and that is noted', () => {
+  // é, an em dash and a curly apostrophe, as a page written in windows-1252 stores them.
+  // Each stands apart: run together, 0xE9 0x97 0x92 is also one valid UTF-8 character, and
+  // a page that is valid UTF-8 is read as UTF-8.
+  // The last byte, 0xE3, is ã in windows-1252 and another letter in its Central European
+  // sibling, which shares the other three.
+  const { text, noted } = decodeNoting(Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x20, 0x97, 0x20, 0x92, 0x20, 0xe3]), 'text/html');
+  assert.equal(text, 'café — ’ ã');
+  assert.deepEqual(noted, [LEGACY_FALLBACK]);
+  assert.equal(LEGACY_FALLBACK, 'windows-1252');
+});
+
+test('a page that declares nothing and is valid UTF-8 is read as UTF-8, and nothing is noted', () => {
+  // 0xC3 0xA9 is é in UTF-8 and Ã© in windows-1252: trying the fallback first would show.
+  const { text, noted } = decodeNoting(Buffer.from([0x63, 0x61, 0x66, 0xc3, 0xa9]), 'text/html');
+  assert.equal(text, 'café');
+  assert.deepEqual(noted, []);
+});
+
+test('the fallback reads every byte value', () => {
+  const everyByte = Buffer.from(Array.from({ length: 256 }, (_, value) => value));
+  const { text, noted } = decodeNoting(everyByte, '');
+  assert.equal([...text].length, 256);
+  assert.deepEqual(noted, [LEGACY_FALLBACK]);
+});
+
+test('a page that declares a charset is never read by the fallback', () => {
+  const noted = [];
+  const note = (charset) => noted.push(charset);
+  assert.throws(() => decodeBody(latin1('<p>café</p>'), 'text/html; charset=utf-8', note), /not valid utf-8/);
+  assert.throws(() => decodeBody(latin1('<meta charset="utf-8"><p>café</p>'), 'text/html', note), /not valid utf-8/);
+  assert.match(decodeBody(latin1('<meta charset="iso-8859-1"><p>café</p>'), 'text/html', note), /café/);
+  assert.deepEqual(noted, []);
 });
 
 // ---- through the whole pass --------------------------------------------------------------
@@ -181,6 +226,51 @@ test("the header's charset beats the page's, and a page that declares nothing is
   const fallback = await deriveOne(t, { body: utf8(declaresNothing), contentType: 'text/html' });
   assert.equal(fallback.result.status, 0, fallback.result.stderr);
   assert.match(fallback.markdown, FIRST_SENTENCE);
+  assert.equal(fallback.result.stderr, '', 'a page read as UTF-8 leaves nothing to say');
+});
+
+// U+0097 and U+0092 are written to a Latin-1 buffer as the bytes 0x97 and 0x92, which is
+// how a page written in windows-1252 stores an em dash and a curly apostrophe.
+const LEGACY_PARAGRAPHS = [
+  'The gardener said one thing\u0097that a sharp blade is a kind one\u0097and then went back to the café for the morning.',
+  ...FRENCH,
+  'It\u0092s the habit that matters, she said, and nobody at the long table by the window disagreed with her.',
+];
+
+test('a page with no declared charset that is not valid UTF-8 is derived as windows-1252, and the run says so', async (t) => {
+  const html = articleHtml({ charsetMeta: '', paragraphs: LEGACY_PARAGRAPHS });
+  const body = latin1(html);
+  for (const byte of [0xe9, 0x97, 0x92]) {
+    assert.ok(body.includes(byte), `the fixture holds the byte 0x${byte.toString(16)}`);
+  }
+
+  const { result, markdown, page } = await deriveOne(t, { body, contentType: 'text/html' });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(markdown, /one thing—that a sharp blade is a kind one—and/);
+  assert.match(markdown, /It’s the habit that matters/);
+  assert.match(markdown, FIRST_SENTENCE);
+  assert.doesNotMatch(markdown, /�|Ã/);
+  assert.equal(result.stdout.trimEnd().split('\n').at(-1), '1 derived, 0 empty, 0 skipped, 0 failed');
+
+  const said = result.stderr.split('\n').filter((line) => line !== '');
+  assert.equal(said.length, 1, result.stderr);
+  assert.ok(said[0].startsWith('derive: '), said[0]);
+  assert.ok(said[0].includes(page.address), 'the line names the page');
+  assert.ok(said[0].includes('windows-1252'), 'the line names the charset it was read in');
+});
+
+test('a page of every byte above 0x7F with no declared charset is derived, not failed', async (t) => {
+  const highBytes = Buffer.from(Array.from({ length: 128 }, (_, index) => 0x80 + index));
+  const html = articleHtml({ charsetMeta: '', paragraphs: FRENCH });
+  const body = Buffer.concat([latin1(html.replace('</body>', '<p>')), highBytes, latin1('</p></body>')]);
+  assert.ok(html.includes('</body>'), 'the fixture has a body to add a paragraph to');
+
+  const { result, markdown } = await deriveOne(t, { body, contentType: '' });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trimEnd().split('\n').at(-1), '1 derived, 0 empty, 0 skipped, 0 failed');
+  assert.match(markdown, FIRST_SENTENCE);
 });
 
 test('a <meta> that ends at byte 1024 declares the charset and one that ends at byte 1025 does not', async (t) => {
@@ -197,7 +287,12 @@ test('a page whose charset is unknown, or whose bytes are not valid in it, is fa
   const html = articleHtml({ charsetMeta: '', paragraphs: FRENCH });
   const cases = {
     'unknown charset': { body: utf8(html), contentType: 'text/html; charset=no-such-charset', complaint: /unsupported charset "no-such-charset"/ },
-    'Latin-1 bytes read as UTF-8': { body: latin1(html), contentType: 'text/html', complaint: /not valid utf-8/ },
+    'Latin-1 bytes under a header that says UTF-8': { body: latin1(html), contentType: 'text/html; charset=utf-8', complaint: /not valid utf-8/ },
+    'Latin-1 bytes under a <meta> that says UTF-8': {
+      body: latin1(articleHtml({ charsetMeta: '<meta charset="utf-8">', paragraphs: FRENCH })),
+      contentType: 'text/html',
+      complaint: /not valid utf-8/,
+    },
   };
   for (const [name, { body, contentType, complaint }] of Object.entries(cases)) {
     const { result, markdown, page } = await deriveOne(t, { body, contentType });

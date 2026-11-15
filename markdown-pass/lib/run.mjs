@@ -19,7 +19,9 @@ async function outcomeOfLine(line, lineNumber, outDir) {
     return 'skipped';
   }
   try {
-    return await derivePage(page, outDir);
+    return await derivePage(page, outDir, (message) => {
+      console.error(oneLine(`derive: ${page.address}: ${message}`));
+    });
   } catch (error) {
     console.error(oneLine(`derive: ${page.address}: ${error?.message ?? error}`));
     return 'failed';
