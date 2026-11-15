@@ -34,7 +34,7 @@
   `hoard discover` records a site's addresses from its sitemap, an index page or a
   command. `hoard fetch` exists in two forms: `--list` for a plain file of addresses, and
   `--recipe` for what was discovered, at the recipe's pace and signed in with its cookie.
-  Either way it fetches under a concurrency ceiling and an explicit rate per host and
+  Either way it fetches under a concurrency ceiling and one explicit rate for the run and
   stores every 2xx body raw in a store directory (`ledger.db` and
   `raw/<xx>/<sha256>.zst`). `hoard verify` judges the capture by the recipe's criterion,
   `hoard status` says where it stands, `hoard list --json` prints what the store holds,
@@ -203,8 +203,11 @@
   `pending` and spends none of its tries. After 5 refusals in a row from one host the run
   stops asking that host, leaves what it owed `pending`, and ends short of its list.
 - **A host is its host and port**, lower-cased, without the scheme's default port. Each has
-  its own limiter and its own pause after a 429 or 403. Every hop of a redirect is a request
-  of its own, paced and paused by the host it leads to.
+  its own queue, its own pause after a 429 or 403 and its doubling, and its own streak of
+  refusals. The rate is not per host: one limiter paces the whole run, so requests to every
+  host together keep to it, and a site that redirects each address to another of its names
+  is not asked once per name. Every hop of a redirect is a request of its own, paced by that
+  limiter and paused by the host it leads to.
 
 ## What never enters this repository
 

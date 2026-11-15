@@ -4,8 +4,6 @@ import (
 	"net/url"
 	"time"
 
-	"golang.org/x/time/rate"
-
 	"github.com/gabrielassisxyz/hoard/internal/hostkey"
 )
 
@@ -24,10 +22,9 @@ type pageJob struct {
 }
 
 // hostQueue is everything the scheduler knows about one site: the addresses waiting for
-// it, the limiter that spaces its requests, and whether it has asked to be left alone.
-// Only the scheduler goroutine touches it.
+// it and whether it has asked to be left alone. How often it is asked is not its own: one
+// limiter paces the whole run. Only the scheduler goroutine touches it.
 type hostQueue struct {
-	limiter     *rate.Limiter
 	waiting     []*pageJob
 	pausedUntil time.Time
 	// refusals is the length of the current streak of 429 and 403 answers to requests sent
@@ -37,10 +34,6 @@ type hostQueue struct {
 	// givenUp is set once the streak reaches maxRefusalsInARow: the run asks this host for
 	// nothing more, and what it still owed stays pending.
 	givenUp bool
-}
-
-func newHostQueue(requestsPerSecond float64) *hostQueue {
-	return &hostQueue{limiter: rate.NewLimiter(rate.Limit(requestsPerSecond), 1)}
 }
 
 func (h *hostQueue) takeNext() *pageJob {
@@ -60,25 +53,17 @@ func (h *hostQueue) requeue(job *pageJob, atFront bool) {
 	h.waiting = append(h.waiting, job)
 }
 
-// readyAt is the earliest moment this host may be asked for its next address: after any
-// pause it was given, and once the limiter has a token again. Looking does not spend the
-// token; the reservation is handed straight back.
+// readyAt is the earliest moment the host itself allows its next address to be asked for:
+// after any pause it was given. When the run's limiter allows it is the scheduler's to add.
 func (h *hostQueue) readyAt(now time.Time) time.Time {
-	at := now
-	if h.pausedUntil.After(at) {
-		at = h.pausedUntil
+	if h.pausedUntil.After(now) {
+		return h.pausedUntil
 	}
-	reservation := h.limiter.ReserveN(now, 1)
-	tokenAt := now.Add(reservation.DelayFrom(now))
-	reservation.CancelAt(now)
-	if tokenAt.After(at) {
-		at = tokenAt
-	}
-	return at
+	return now
 }
 
-// hostKey names the site a request is paced against. The rule lives in hostkey because a
-// recipe has to name a site the same way the fetcher does.
+// hostKey names the site a request is queued and paused against. The rule lives in hostkey
+// because a recipe has to name a site the same way the fetcher does.
 func hostKey(u *url.URL) string {
 	return hostkey.Of(u)
 }

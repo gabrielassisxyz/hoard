@@ -10,7 +10,7 @@ It has not been run against a real site yet.
 
 1. **Discover** the addresses of a site: from its sitemap, by following links, or from a
    command that prints them.
-2. **Fetch** the HTML of each address, several at a time, under an explicit rate per host,
+2. **Fetch** the HTML of each address, several at a time, under one explicit rate for the run,
    and store every response exactly as it arrived.
 3. **Verify** the result against a criterion stated for that site, and say what is missing.
 4. **Derive**, as separate passes that can be run again at any time: Markdown, and the

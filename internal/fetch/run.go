@@ -14,7 +14,7 @@ import (
 // The defaults the command line shows. A zero field in RunConfig means the same default.
 const (
 	DefaultWorkers = 4
-	DefaultRate    = 2.0 // requests per second to any one host
+	DefaultRate    = 2.0 // requests per second over the whole run, whatever host each goes to
 	DefaultTimeout = 30 * time.Second
 	// A current desktop browser's. Sites answer a browser; some answer anything else
 	// differently or not at all, and a capture is meant to hold what a reader sees.
@@ -36,7 +36,8 @@ type RunConfig struct {
 
 	// Workers is the most requests in flight at once across all hosts.
 	Workers int
-	// Rate is requests per second to any one host, with no burst beyond one.
+	// Rate is requests per second over the whole run, to every host together, with no burst
+	// beyond one.
 	Rate      float64
 	Timeout   time.Duration
 	UserAgent string
@@ -185,7 +186,7 @@ func (e *fetchScheduler) hostFor(parsed *url.URL) *hostQueue {
 	if host, ok := e.hostByKey[key]; ok {
 		return host
 	}
-	host := newHostQueue(e.cfg.Rate)
+	host := &hostQueue{}
 	e.hostByKey[key] = host
 	e.hosts = append(e.hosts, host)
 	return host

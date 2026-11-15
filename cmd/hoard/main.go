@@ -1,5 +1,5 @@
 // Command hoard captures web pages. For now it does one thing: fetch a list of addresses
-// into a raw store, under a rate per host.
+// into a raw store, under one rate for the whole run.
 package main
 
 import (
@@ -154,7 +154,7 @@ func parseFetchArguments(args []string, stderr io.Writer) (fetchOptions, int, bo
 	flags.StringVar(&opts.listPath, "list", "", "file with one address per line")
 	flags.StringVar(&opts.recipePath, "recipe", "", "the site's recipe file: fetch what was discovered for it, at its pace")
 	flags.IntVar(&opts.workers, "workers", fetch.DefaultWorkers, "most requests in flight at once, across all hosts")
-	flags.Float64Var(&opts.rate, "rate", fetch.DefaultRate, "requests per second to any one host")
+	flags.Float64Var(&opts.rate, "rate", fetch.DefaultRate, "requests per second over the whole run, whatever host each goes to")
 	flags.DurationVar(&opts.timeout, "timeout", fetch.DefaultTimeout, "time allowed for one request")
 	flags.StringVar(&opts.userAgent, "user-agent", fetch.DefaultUserAgent, "User-Agent header sent with every request")
 	flags.Usage = func() { printFetchUsage(stderr, flags) }

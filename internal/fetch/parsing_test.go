@@ -141,9 +141,13 @@ func TestHostKeyTreatsSpellingsOfOneSiteAsOne(t *testing.T) {
 	}
 }
 
-func TestEachHostGetsALimiterAtTheStatedRateWithABurstOfOne(t *testing.T) {
+func TestTheRunGetsOneLimiterAtTheStatedRateWithABurstOfOne(t *testing.T) {
 	for _, rate := range []float64{0.5, 2, 50} {
-		limiter := newHostQueue(rate).limiter
+		cfg, err := RunConfig{Store: &store.Store{}, Rate: rate}.resolved()
+		if err != nil {
+			t.Fatal(err)
+		}
+		limiter := newFetchScheduler(cfg).limiter
 		if got := float64(limiter.Limit()); got != rate {
 			t.Errorf("limiter rate = %v, want %v", got, rate)
 		}
@@ -165,7 +169,7 @@ func schedulerForUnitTest(t *testing.T) *fetchScheduler {
 	return newFetchScheduler(cfg)
 }
 
-func TestHostsGetTheirOwnQueueAndLimiterAndSpellingsOfOneShareIt(t *testing.T) {
+func TestHostsGetTheirOwnQueueAndSpellingsOfOneShareIt(t *testing.T) {
 	scheduler := schedulerForUnitTest(t)
 	parse := func(address string) *url.URL {
 		parsed, err := url.Parse(address)
@@ -178,17 +182,14 @@ func TestHostsGetTheirOwnQueueAndLimiterAndSpellingsOfOneShareIt(t *testing.T) {
 	if one == two {
 		t.Error("two hosts share a queue and with it a pause")
 	}
-	if one.limiter == two.limiter {
-		t.Error("two hosts share a limiter, so one pace is divided between them")
-	}
 	if again := scheduler.hostFor(parse("HTTP://ONE.test:80/y")); again != one {
-		t.Error("two spellings of one host got two queues, which doubles the pace it is asked at")
+		t.Error("two spellings of one host got two queues, so a pause on one does not hold back the other")
 	}
 }
 
 func TestRefusalsAreInARowOnlyWhenSentAfterThePreviousOne(t *testing.T) {
 	scheduler := schedulerForUnitTest(t)
-	host := newHostQueue(1000)
+	host := &hostQueue{}
 	refused := attemptResult{kind: attemptRefused, retryAfter: time.Second, hasRetryAfter: true}
 	answered := attemptResult{kind: attemptStored, outcome: store.Outcome{HTTPStatus: 200}}
 	pause := func() { time.Sleep(2 * time.Millisecond) }
