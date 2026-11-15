@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// treeSnapshot lists everything under root, directories included, with a hash of each
+// existingTestTree lists everything under root, directories included, with a hash of each
 // file's bytes, so that a test can tell "nothing was created" from "nothing was changed".
-func treeSnapshot(t *testing.T, root string) []string {
+func existingTestTree(t *testing.T, root string) []string {
 	t.Helper()
 	var entries []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -81,7 +81,7 @@ func TestOpenExistingReportsNoStoreAndCreatesNothing(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			dir := prepare(t, root)
-			before := treeSnapshot(t, root)
+			before := existingTestTree(t, root)
 
 			s, err := OpenExisting(dir)
 
@@ -94,7 +94,7 @@ func TestOpenExistingReportsNoStoreAndCreatesNothing(t *testing.T) {
 			if !strings.Contains(err.Error(), dir) {
 				t.Errorf("the error does not name the directory %q: %v", dir, err)
 			}
-			if after := treeSnapshot(t, root); !slices.Equal(before, after) {
+			if after := existingTestTree(t, root); !slices.Equal(before, after) {
 				t.Errorf("OpenExisting changed the directory tree:\nbefore %v\nafter  %v", before, after)
 			}
 		})
@@ -121,7 +121,7 @@ func TestOpenExistingOpensAStoreWithoutChangingIt(t *testing.T) {
 	if err := seed.Close(); err != nil {
 		t.Fatal(err)
 	}
-	before := treeSnapshot(t, dir)
+	before := existingTestTree(t, dir)
 
 	s, err := OpenExisting(dir)
 	if err != nil {
@@ -138,7 +138,7 @@ func TestOpenExistingOpensAStoreWithoutChangingIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if after := treeSnapshot(t, dir); !slices.Equal(before, after) {
+	if after := existingTestTree(t, dir); !slices.Equal(before, after) {
 		t.Errorf("opening and closing an existing store changed it:\nbefore %v\nafter  %v", before, after)
 	}
 }
