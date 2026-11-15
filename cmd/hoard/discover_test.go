@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -12,12 +13,15 @@ import (
 	"github.com/gabrielassisxyz/hoard/internal/store"
 )
 
-// writeRecipeFile writes a recipe for a synthetic site. The rate is high only to keep the
-// tests short.
-func writeRecipeFile(t *testing.T, siteURL, discoverTable string) string {
+// writeRecipeFile writes a recipe for a synthetic site. Unless a test states a rate of its
+// own, the rate is high only to keep the tests short.
+func writeRecipeFile(t *testing.T, siteURL, discoverTable string, fetchLines ...string) string {
 	t.Helper()
-	content := fmt.Sprintf("[site]\nname = \"synthetic\"\nhost = %q\n\n[discover]\n%s\n\n[fetch]\nrate = 1000.0\n",
-		strings.TrimPrefix(siteURL, "http://"), discoverTable)
+	if !slices.ContainsFunc(fetchLines, func(line string) bool { return strings.HasPrefix(line, "rate") }) {
+		fetchLines = append(fetchLines, "rate = 1000.0")
+	}
+	content := fmt.Sprintf("[site]\nname = \"synthetic\"\nhost = %q\n\n[discover]\n%s\n\n[fetch]\n%s\n",
+		strings.TrimPrefix(siteURL, "http://"), discoverTable, strings.Join(fetchLines, "\n"))
 	path := filepath.Join(t.TempDir(), "recipe.toml")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
