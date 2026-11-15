@@ -13,10 +13,12 @@ import (
 
 // The defaults the command line shows. A zero field in RunConfig means the same default.
 const (
-	DefaultWorkers   = 4
-	DefaultRate      = 2.0 // requests per second to any one host
-	DefaultTimeout   = 30 * time.Second
-	DefaultUserAgent = "hoard (+https://github.com/gabrielassisxyz/hoard)"
+	DefaultWorkers = 4
+	DefaultRate    = 2.0 // requests per second to any one host
+	DefaultTimeout = 30 * time.Second
+	// A current desktop browser's. Sites answer a browser; some answer anything else
+	// differently or not at all, and a capture is meant to hold what a reader sees.
+	DefaultUserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
 
 	// Per address, per run, whatever each attempt turned out to be.
 	maxAttemptsPerRun   = 3
