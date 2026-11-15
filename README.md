@@ -1,7 +1,7 @@
 # hoard
 
 A personal web capture tool. It collects the raw HTML of a list of pages, then derives
-clean HTML and Markdown from what it stored.
+Markdown from what it stored.
 
 **Status: early.** The pipeline runs end to end against synthetic sites in its own tests.
 It has not been run against a real site yet.
@@ -13,8 +13,8 @@ It has not been run against a real site yet.
 2. **Fetch** the HTML of each address, several at a time, under an explicit rate per host,
    and store every response exactly as it arrived.
 3. **Verify** the result against a criterion stated for that site, and say what is missing.
-4. **Derive**, as separate passes that can be run again at any time: clean HTML, Markdown,
-   and the page's assets.
+4. **Derive**, as separate passes that can be run again at any time: Markdown, and the
+   page's assets.
 
 Fetching and deriving are deliberately apart. The stored response is the source of truth,
 so a better cleaning pass tomorrow needs no second visit to the site.
@@ -50,7 +50,7 @@ hoard verify   --recipe example.toml --store ~/archives/example   # is the captu
 hoard status   --store ~/archives/example                         # where does it stand?
 
 hoard list --store ~/archives/example --json \
-  | node markdown-pass/derive.mjs --out ~/archives/example        # clean HTML and Markdown
+  | node markdown-pass/derive.mjs --out ~/archives/example        # Markdown to read
 ```
 
 Every command can be run again. A page that was fetched is not fetched twice, and a

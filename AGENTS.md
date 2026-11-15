@@ -4,7 +4,7 @@
 > decision, append one line here.
 
 > **What it is:** a personal web capture tool. It collects the raw HTML of a list of
-> pages, then derives clean HTML and Markdown from what it stored.
+> pages, then derives Markdown from what it stored.
 > **Calibration:** Tier 1 · Phase: work. No users and nothing deployed yet; the goal is a
 > first end-to-end capture that works. Raise to Tier 2 once that capture works and
 > features start being added.
@@ -38,7 +38,7 @@
   stores every 2xx body raw in a store directory (`ledger.db` and
   `raw/<xx>/<sha256>.zst`). `hoard verify` judges the capture by the recipe's criterion,
   `hoard status` says where it stands, `hoard list --json` prints what the store holds,
-  and `markdown-pass/derive.mjs` turns those lines into clean HTML and Markdown. Not built
+  and `markdown-pass/derive.mjs` turns those lines into Markdown. Not built
   yet: `robots.txt`, assets, skipping pages already derived, a browser for pages that only
   exist after JavaScript runs. The next target is the first recipe for a real site, kept
   outside this repository; don't expand beyond that without a present need, and if a
@@ -152,8 +152,10 @@
 
 ## How the pipeline is cut
 
-- **Raw first.** The stored response is the source of truth. Clean HTML and Markdown are
-  derived from it and can always be produced again.
+- **Raw first.** The stored response is the source of truth. Markdown is derived from it
+  and can always be produced again. The cleaned HTML the Markdown is made from is written
+  only with `--clean-html`: nothing reads it, and a copy nobody reads is space and a second
+  thing to keep right.
 - **Fetching and deriving are separate passes.** The collector never waits for cleaning,
   Markdown or assets, and those passes never touch the network.
 - **A site is described by a recipe, and a recipe is data.** A recipe file holds values
