@@ -30,4 +30,12 @@ else
     echo "==> go: no module yet, nothing to check"
 fi
 
+# The pass that derives clean HTML and Markdown is Node, in a directory of its own. `npm ci`
+# installs exactly what the lockfile says and fails when it and package.json disagree, so a
+# dependency cannot change under the gate without a commit that shows it.
+echo "==> markdown-pass: npm ci"
+(cd markdown-pass && npm ci)
+echo "==> markdown-pass: npm test"
+(cd markdown-pass && npm test)
+
 echo "==> bin/ci OK"
