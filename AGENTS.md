@@ -39,6 +39,8 @@
   `raw/<xx>/<sha256>.zst`) and ends by saying how long the site took to answer.
   `hoard verify` judges the capture by the recipe's criterion,
   `hoard status` says where it stands, `hoard list --json` prints what the store holds,
+  `hoard show` writes one held page with a `<base>` element and no `integrity` attributes
+  so a browser can draw it,
   and `markdown-pass/derive.mjs` turns those lines into Markdown. `hoard assets --list`
   keeps a list of image addresses as files under `assets/`, in a table of their own, and
   `hoard list --assets --json` prints them. Not built
@@ -188,6 +190,13 @@
   itself, so `hostkey.SessionMayGoTo` is the only thing that puts a cookie on a request.
 - **A cookie file is a secret on disk.** One readable by group or others is refused, and
   no message quotes its content.
+- **A shown page is the stored bytes plus one element.** `show` works on bytes, never on a
+  parsed page, so the body is not re-encoded: it inserts `<base href>` after the opening
+  `<head>` tag (when there is none, at the start, but after a byte order mark and a leading
+  doctype, since either moved would change how the browser reads the page) and removes
+  `integrity` attributes
+  inside tags, skipping comments, `<script>` and `<style>`. It reads the store and writes
+  nothing into it.
 - **A derived file is named after its address, never after its body.** The name is the
   SHA-256 of the address as requested. Two addresses can share one body, and what the
   extractor returns depends on the address it is given as the base for links.
