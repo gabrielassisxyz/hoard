@@ -16,6 +16,7 @@ import (
 type listOptions struct {
 	storeDir string
 	asJSON   bool
+	assets   bool
 }
 
 // listedPage is one line of `hoard list --json`. The program that reads the lines takes
@@ -31,6 +32,16 @@ type listedPage struct {
 	BodyPath     string `json:"body_path"`
 }
 
+// listedAsset is one line of `hoard list --assets --json`, with the same promise as a page's.
+type listedAsset struct {
+	Address      string `json:"address"`
+	FinalAddress string `json:"final_address"`
+	ContentType  string `json:"content_type"`
+	SHA256       string `json:"sha256"`
+	SizeBytes    int64  `json:"size_bytes"`
+	FilePath     string `json:"file_path"`
+}
+
 // runListCommand prints what a store holds. It never creates anything: a mistyped store
 // directory has to be an error here, not an empty store left behind.
 func runListCommand(args []string, stdout, stderr io.Writer) int {
@@ -44,6 +55,9 @@ func runListCommand(args []string, stdout, stderr io.Writer) int {
 	}
 	defer st.Close()
 
+	if opts.assets {
+		return listAssets(st, stdout, stderr)
+	}
 	pages, err := st.Pages()
 	if err != nil {
 		return reportListFailure(stderr, err)
@@ -52,6 +66,49 @@ func runListCommand(args []string, stdout, stderr io.Writer) int {
 		return reportListFailure(stderr, err)
 	}
 	return exitCodeComplete
+}
+
+func listAssets(st *store.Store, stdout, stderr io.Writer) int {
+	assets, err := st.AssetLedger().Pages()
+	if err != nil {
+		return reportListFailure(stderr, err)
+	}
+	if err := writeListedAssets(stdout, st, assets); err != nil {
+		return reportListFailure(stderr, err)
+	}
+	return exitCodeComplete
+}
+
+// writeListedAssets prints the held images, in address order. The path is the store's own
+// answer, since the extension in it depends on rules that live there.
+func writeListedAssets(w io.Writer, st *store.Store, assets []store.Page) error {
+	out := bufio.NewWriter(w)
+	encoder := json.NewEncoder(out)
+	encoder.SetEscapeHTML(false)
+	for _, asset := range assets {
+		if asset.State != store.StateOK {
+			continue
+		}
+		finalAddress := asset.FinalAddress
+		if finalAddress == "" {
+			finalAddress = asset.Address
+		}
+		line := listedAsset{
+			Address:      asset.Address,
+			FinalAddress: finalAddress,
+			ContentType:  asset.ContentType,
+			SHA256:       asset.SHA256,
+			SizeBytes:    asset.SizeBytes,
+			FilePath:     st.AssetPath(asset),
+		}
+		if err := encoder.Encode(line); err != nil {
+			return fmt.Errorf("write the listing: %w", err)
+		}
+	}
+	if err := out.Flush(); err != nil {
+		return fmt.Errorf("write the listing: %w", err)
+	}
+	return nil
 }
 
 func reportListFailure(stderr io.Writer, err error) int {
@@ -114,6 +171,7 @@ func parseListArguments(args []string, stderr io.Writer) (listOptions, int, bool
 	flags.SetOutput(stderr)
 	flags.StringVar(&opts.storeDir, "store", "", "directory that holds the ledger and the raw bodies (required)")
 	flags.BoolVar(&opts.asJSON, "json", false, "print one JSON object per stored page (required: no other format exists yet)")
+	flags.BoolVar(&opts.assets, "assets", false, "list the images the store holds instead of its pages")
 	flags.Usage = func() { printListUsage(stderr, flags) }
 
 	if err := flags.Parse(args); err != nil {
@@ -145,5 +203,6 @@ func listArgumentProblem(opts listOptions, extraArguments int) string {
 
 func printListUsage(w io.Writer, flags *flag.FlagSet) {
 	fmt.Fprintln(w, "usage: hoard list --store <dir> --json")
+	fmt.Fprintln(w, "       hoard list --store <dir> --assets --json")
 	flags.PrintDefaults()
 }
