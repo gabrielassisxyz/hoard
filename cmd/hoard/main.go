@@ -11,7 +11,7 @@ import (
 	"math"
 	"os"
 	"os/signal"
-	"strings"
+	"slices"
 	"syscall"
 	"time"
 
@@ -78,12 +78,17 @@ type fetchOptions struct {
 	listPath   string
 	recipePath string
 	// paceFlagsGiven names the pace flags that were typed, as opposed to left at their
-	// defaults: with a recipe the pace is the recipe's.
+	// defaults: with a recipe, only those replace the recipe's value.
 	paceFlagsGiven []string
 	workers        int
 	rate           float64
 	timeout        time.Duration
 	userAgent      string
+}
+
+// paceFlagWasTyped takes the flag as the person sees it, with its dashes.
+func (o fetchOptions) paceFlagWasTyped(flagName string) bool {
+	return slices.Contains(o.paceFlagsGiven, flagName)
 }
 
 func runFetchCommand(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -190,8 +195,6 @@ func fetchArgumentProblem(opts fetchOptions, extraArguments int) string {
 		return "--list is required, or --recipe for a site that has one"
 	case opts.listPath != "" && opts.recipePath != "":
 		return "--list and --recipe cannot be combined: a run fetches one or the other"
-	case opts.recipePath != "" && len(opts.paceFlagsGiven) > 0:
-		return strings.Join(opts.paceFlagsGiven, ", ") + " cannot be combined with --recipe: the recipe states the pace"
 	case opts.workers < 1:
 		return "--workers must be at least 1"
 	case !(opts.rate > 0) || math.IsInf(opts.rate, 0):
@@ -206,6 +209,12 @@ func fetchArgumentProblem(opts fetchOptions, extraArguments int) string {
 
 func printFetchUsage(w io.Writer, flags *flag.FlagSet) {
 	fmt.Fprintln(w, "usage: hoard fetch --store <dir> --list <file> [--workers N] [--rate R] [--timeout D] [--user-agent S]")
-	fmt.Fprintln(w, "       hoard fetch --store <dir> --recipe <file>")
+	fmt.Fprintln(w, "       hoard fetch --store <dir> --recipe <file> [--workers N] [--rate R] [--timeout D] [--user-agent S]")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "With --recipe the pace is the recipe's, except that a pace flag typed on the command line")
+	fmt.Fprintln(w, "wins over the recipe for that one run, and each value it replaces is reported on standard")
+	fmt.Fprintln(w, "error. A flag that is not typed leaves the recipe's value, or the default shown below when")
+	fmt.Fprintln(w, "the recipe states none.")
+	fmt.Fprintln(w)
 	flags.PrintDefaults()
 }

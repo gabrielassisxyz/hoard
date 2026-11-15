@@ -198,6 +198,14 @@
   obtained is `fetch`'s exit code.
 - **A run says what it did not get.** Expected against obtained is reported, and a run
   that took less than it was asked for does not exit 0.
+- **A pace flag typed beside `--recipe` wins for that run, and the run says so.**
+  `--workers`, `--rate`, `--timeout` and `--user-agent` are one rule for all four: a flag
+  that is typed wins over the recipe for that one run, and one that is not typed leaves the
+  recipe's value, or the default when the recipe states none. Each replaced value is
+  reported on standard error, naming the flag, the value used and the recipe's, because a
+  log read later would otherwise credit the recipe with a pace it did not keep. A flag's
+  value is checked as it is without a recipe, `--list` with `--recipe` is still refused,
+  and `discover` takes no pace flags.
 - **The body is written before its row.** A body file goes in by temporary file and rename;
   only then does its ledger row become `ok`. A crash may leave a body with no row, never a
   row naming a body that is not there.
@@ -238,6 +246,7 @@
 | `bin/worktree` falls back to `master` when `origin/HEAD` is unset, which a fresh clone can lack; run `git remote set-head origin -a` and check the banner says `main` | tripwire | none yet |
 | `node --test` runs every file under a directory named `test`, so a shared helper put there is run as a test; helpers live in `markdown-pass/test-support/` | tripwire | none yet |
 | A test whose mutation survives is the suspect before the code is: a fragment check ran under a pattern that already excluded fragments, and a failing command printed an off-site address, so both went red for a reason other than the rule they named | tripwire | none yet |
+| A lower bound on elapsed time tells a recipe's rate from the default only when the recipe is slower than the default: a faster rate passes every bound the default also meets, so the test that the recipe's rate is used states a rate below the default | tripwire | none yet |
 | A test that asserts an upper bound on elapsed time fails on a loaded CI runner, because `go test` compiles the pure-Go SQLite beside it and can starve a test for hundreds of milliseconds; assert lower bounds, or read the property off the code (a limiter's burst, which host owns which queue) | tripwire | none yet |
 
 **A hurdle promoted to a gate is deleted from this table, not duplicated.** The gate is the

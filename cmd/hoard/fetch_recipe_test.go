@@ -131,10 +131,12 @@ func TestFetchByRecipeUsesTheRecipesWorkers(t *testing.T) {
 }
 
 func TestFetchByRecipeUsesTheRecipesRate(t *testing.T) {
-	site := newRecipeSite(t, 0, "/a", "/b", "/c", "/d")
-	// The sitemap and four pages at 5 a second are four gaps of 200ms. Only a lower bound
-	// is asserted: a loaded machine makes a run slower, never faster than its pace.
-	recipePath := site.recipe(t, "rate = 5.0")
+	site := newRecipeSite(t, 0, "/a", "/b", "/c")
+	// Only a lower bound is asserted: a loaded machine makes a run slower, never faster than
+	// its pace. So the recipe's rate is slower than the default of 2 a second, or a bound
+	// that the default also meets could not tell the one from the other: three pages at 1 a
+	// second are two gaps of a second, and at the default they would take one in all.
+	recipePath := site.recipe(t, "rate = 1.0")
 	storeDir := site.discovered(t, recipePath)
 	if run := runHoardBinary(t, "fetch", "--store", storeDir, "--recipe", recipePath); run.exitCode != 0 {
 		t.Fatalf("exit code %d, stderr: %s", run.exitCode, run.stderr)
@@ -142,11 +144,11 @@ func TestFetchByRecipeUsesTheRecipesRate(t *testing.T) {
 	site.mu.Lock()
 	pages := append([]time.Time(nil), site.arrivals[1:]...)
 	site.mu.Unlock()
-	if len(pages) != 4 {
-		t.Fatalf("the site saw %d page requests, want 4", len(pages))
+	if len(pages) != 3 {
+		t.Fatalf("the site saw %d page requests, want 3", len(pages))
 	}
-	if span := pages[3].Sub(pages[0]); span < 500*time.Millisecond {
-		t.Errorf("4 pages arrived within %v; at the recipe's 5 a second they take at least 600ms", span)
+	if span := pages[2].Sub(pages[0]); span < 1500*time.Millisecond {
+		t.Errorf("3 pages arrived within %v; at the recipe's 1 a second they take at least 2s", span)
 	}
 }
 
@@ -162,6 +164,183 @@ func TestFetchByRecipeUsesTheRecipesTimeout(t *testing.T) {
 	}
 	if got := strings.TrimSpace(run.stdout); got != "1 listed, 0 held, 1 failed, 0 pending" {
 		t.Errorf("stdout = %q", got)
+	}
+}
+
+// The tests below type a pace flag beside a recipe that states the opposite, so a run that
+// ignored the flag is told apart from one that honoured it by what the site saw. Discovery
+// takes no pace flags, which is why the request it made before them is left out.
+
+func TestFetchByRecipeLetsTheWorkersFlagReplaceTheRecipesWorkers(t *testing.T) {
+	site := newRecipeSite(t, 60*time.Millisecond, "/a", "/b", "/c", "/d", "/e", "/f")
+	// The helper gives the recipe a fast rate, without which the pace alone would keep two
+	// requests from ever overlapping, whatever the workers.
+	recipePath := site.recipe(t, "workers = 4")
+	storeDir := site.discovered(t, recipePath)
+	run := runHoardBinary(t, "fetch", "--store", storeDir, "--recipe", recipePath, "--workers", "1")
+	if run.exitCode != 0 {
+		t.Fatalf("exit code %d, stderr: %s", run.exitCode, run.stderr)
+	}
+	if peak := site.peakInFlight(); peak > 1 {
+		t.Errorf("%d requests were in flight at once, and --workers 1 was typed beside a recipe of 4", peak)
+	}
+}
+
+func TestFetchByRecipeLetsTheRateFlagReplaceTheRecipesRate(t *testing.T) {
+	site := newRecipeSite(t, 0, "/a", "/b", "/c", "/d")
+	// The recipe's 1000 a second would bring the four pages within milliseconds, and only
+	// --rate 5 puts 200ms between them. Only a lower bound is asserted: a loaded machine
+	// makes a run slower, never faster than its pace.
+	recipePath := site.recipe(t, "rate = 1000.0")
+	storeDir := site.discovered(t, recipePath)
+	run := runHoardBinary(t, "fetch", "--store", storeDir, "--recipe", recipePath, "--rate", "5")
+	if run.exitCode != 0 {
+		t.Fatalf("exit code %d, stderr: %s", run.exitCode, run.stderr)
+	}
+	site.mu.Lock()
+	pages := append([]time.Time(nil), site.arrivals[1:]...)
+	site.mu.Unlock()
+	if len(pages) != 4 {
+		t.Fatalf("the site saw %d page requests, want 4", len(pages))
+	}
+	if span := pages[3].Sub(pages[0]); span < 500*time.Millisecond {
+		t.Errorf("4 pages arrived within %v; at --rate 5 they take at least 600ms", span)
+	}
+}
+
+func TestFetchByRecipeLetsTheTimeoutFlagReplaceTheRecipesTimeout(t *testing.T) {
+	cases := []struct {
+		name         string
+		recipeStates []string
+	}{
+		{"a recipe that states no timeout", nil},
+		{"a recipe that allows far longer", []string{`timeout = "30s"`}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// The page takes far longer than the flag allows and far less than the default
+			// or the recipe does, so only the flag can make the run give up on it.
+			site := newRecipeSite(t, 1500*time.Millisecond, "/slow")
+			recipePath := site.recipe(t, c.recipeStates...)
+			storeDir := site.discovered(t, recipePath)
+			run := runHoardBinary(t, "fetch", "--store", storeDir, "--recipe", recipePath, "--timeout", "100ms")
+			if run.exitCode != 1 {
+				t.Errorf("exit code %d, want 1 for a page that outlasts --timeout 100ms", run.exitCode)
+			}
+			if got := strings.TrimSpace(run.stdout); got != "1 listed, 0 held, 1 failed, 0 pending" {
+				t.Errorf("stdout = %q", got)
+			}
+		})
+	}
+}
+
+func TestFetchByRecipeLetsTheUserAgentFlagReplaceTheRecipesUserAgent(t *testing.T) {
+	site := newRecipeSite(t, 0, "/a", "/b")
+	recipePath := site.recipe(t, `user_agent = "recipe-agent/2"`)
+	storeDir := site.discovered(t, recipePath)
+	run := runHoardBinary(t, "fetch", "--store", storeDir, "--recipe", recipePath, "--user-agent", "flag-agent/9")
+	if run.exitCode != 0 {
+		t.Fatalf("exit code %d, stderr: %s", run.exitCode, run.stderr)
+	}
+	site.mu.Lock()
+	agents := append([]string(nil), site.agents...)
+	site.mu.Unlock()
+	if len(agents) != 3 {
+		t.Fatalf("the site saw %d requests, want the sitemap and 2 pages", len(agents))
+	}
+	for _, agent := range agents[1:] {
+		if agent != "flag-agent/9" {
+			t.Errorf("a page was asked for as %q, want the flag's user agent", agent)
+		}
+	}
+}
+
+// recipeStatingNoPace is a recipe with no [fetch] table at all. The recipe helper cannot
+// make one, because it gives every recipe a fast rate to keep the tests quick.
+func (s *recipeSite) recipeStatingNoPace(t *testing.T) string {
+	t.Helper()
+	content := fmt.Sprintf("[site]\nname = \"synthetic\"\nhost = %q\n\n[discover]\nkind = \"sitemap\"\nurl = %q\n",
+		strings.TrimPrefix(s.URL, "http://"), s.URL+"/sitemap.xml")
+	path := filepath.Join(t.TempDir(), "recipe.toml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestFetchByRecipeSaysEachValueTheCommandLineReplaced(t *testing.T) {
+	site := newRecipeSite(t, 0, "/a")
+	statingEverything := site.recipe(t, "workers = 3", "rate = 1000.0", `timeout = "20s"`, `user_agent = "recipe-agent/2"`)
+	statingNothing := site.recipeStatingNoPace(t)
+	storeDir := site.discovered(t, statingEverything)
+	allFour := []string{"--workers", "1", "--rate", "5", "--timeout", "100ms", "--user-agent", "flag-agent/9"}
+
+	cases := []struct {
+		name   string
+		recipe string
+		flags  []string
+		want   string // all of standard error
+	}{
+		{"no flag", statingEverything, nil, ""},
+		{"workers", statingEverything, []string{"--workers", "1"},
+			"hoard fetch: --workers 1 from the command line for this run, not the recipe's 3\n"},
+		{"rate", statingEverything, []string{"--rate", "5"},
+			"hoard fetch: --rate 5 from the command line for this run, not the recipe's 1000\n"},
+		{"timeout", statingEverything, []string{"--timeout", "100ms"},
+			"hoard fetch: --timeout 100ms from the command line for this run, not the recipe's 20s\n"},
+		{"user agent", statingEverything, []string{"--user-agent", "flag-agent/9"},
+			"hoard fetch: --user-agent \"flag-agent/9\" from the command line for this run, not the recipe's \"recipe-agent/2\"\n"},
+		{"all four, in the order the usage names them", statingEverything, allFour,
+			"hoard fetch: --workers 1 from the command line for this run, not the recipe's 3\n" +
+				"hoard fetch: --rate 5 from the command line for this run, not the recipe's 1000\n" +
+				"hoard fetch: --timeout 100ms from the command line for this run, not the recipe's 20s\n" +
+				"hoard fetch: --user-agent \"flag-agent/9\" from the command line for this run, not the recipe's \"recipe-agent/2\"\n"},
+		{"a value equal to the recipe's is still where the value came from", statingEverything, []string{"--workers", "3"},
+			"hoard fetch: --workers 3 from the command line for this run, not the recipe's 3\n"},
+		{"a recipe that states none", statingNothing, allFour,
+			"hoard fetch: --workers 1 from the command line for this run; the recipe states none\n" +
+				"hoard fetch: --rate 5 from the command line for this run; the recipe states none\n" +
+				"hoard fetch: --timeout 100ms from the command line for this run; the recipe states none\n" +
+				"hoard fetch: --user-agent \"flag-agent/9\" from the command line for this run; the recipe states none\n"},
+		{"a recipe that states none and no flag", statingNothing, nil, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			args := append([]string{"fetch", "--store", storeDir, "--recipe", c.recipe}, c.flags...)
+			run := runHoardBinary(t, args...)
+			if run.exitCode != 0 {
+				t.Fatalf("exit code %d, stderr: %s", run.exitCode, run.stderr)
+			}
+			if run.stderr != c.want {
+				t.Errorf("stderr = %q, want %q", run.stderr, c.want)
+			}
+		})
+	}
+}
+
+// The sentence the usage and both documents carry, said alike so one phrase finds it.
+const paceFlagRuleSentence = "wins over the recipe for that one run"
+
+func TestFetchUsageSaysAPaceFlagWinsOverTheRecipe(t *testing.T) {
+	run := runHoardBinary(t, "fetch", "-h")
+	if run.exitCode != 0 {
+		t.Fatalf("exit code %d", run.exitCode)
+	}
+	if usage := strings.Join(strings.Fields(run.stdout+run.stderr), " "); !strings.Contains(usage, paceFlagRuleSentence) {
+		t.Errorf("fetch -h does not say that a pace flag %s:\n%s%s", paceFlagRuleSentence, run.stdout, run.stderr)
+	}
+}
+
+func TestReadmeAndAgentsBriefingSayAPaceFlagWinsOverTheRecipe(t *testing.T) {
+	for _, name := range []string{"README.md", "AGENTS.md"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The files are wrapped by hand, so the sentence can break across a line.
+		if text := strings.Join(strings.Fields(string(raw)), " "); !strings.Contains(text, paceFlagRuleSentence) {
+			t.Errorf("%s does not say that a pace flag %s", name, paceFlagRuleSentence)
+		}
 	}
 }
 
@@ -183,7 +362,7 @@ func TestFetchByRecipeWithNothingDiscoveredSaysSo(t *testing.T) {
 	}
 }
 
-func TestFetchExitsTwoWhenListAndRecipeAreMixedUp(t *testing.T) {
+func TestFetchWithARecipeExitsTwoForACommandLineThatCannotBeUsed(t *testing.T) {
 	site := newRecipeSite(t, 0, "/a")
 	recipePath := site.recipe(t)
 	storeDir := site.discovered(t, recipePath)
@@ -197,10 +376,11 @@ func TestFetchExitsTwoWhenListAndRecipeAreMixedUp(t *testing.T) {
 		mention string
 	}{
 		{"both a list and a recipe", withRecipe("--list", list), "--list and --recipe cannot be combined"},
-		{"workers with a recipe", withRecipe("--workers", "2"), "--workers cannot be combined with --recipe"},
-		{"rate with a recipe", withRecipe("--rate", "5"), "--rate cannot be combined with --recipe"},
-		{"timeout with a recipe", withRecipe("--timeout", "10s"), "--timeout cannot be combined with --recipe"},
-		{"user agent with a recipe", withRecipe("--user-agent", "x"), "--user-agent cannot be combined with --recipe"},
+		{"no workers beside a recipe", withRecipe("--workers", "0"), "--workers must be at least 1"},
+		{"a rate of zero beside a recipe", withRecipe("--rate", "0"), "--rate must be a positive"},
+		{"a negative rate beside a recipe", withRecipe("--rate", "-3"), "--rate must be a positive"},
+		{"a timeout of zero beside a recipe", withRecipe("--timeout", "0s"), "--timeout must be longer than zero"},
+		{"an empty user agent beside a recipe", withRecipe("--user-agent", ""), "--user-agent cannot be empty"},
 		{"a recipe that does not exist", []string{"fetch", "--store", storeDir, "--recipe", filepath.Join(t.TempDir(), "absent.toml")}, "absent.toml"},
 		{"a recipe that is invalid", []string{"fetch", "--store", storeDir, "--recipe", writeRecipeFile(t, site.URL, "kind = \"crawl\"")}, "discover.kind"},
 	}
