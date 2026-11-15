@@ -1,12 +1,12 @@
 package fetch
 
 import (
-	"net"
 	"net/url"
-	"strings"
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"github.com/gabrielassisxyz/hoard/internal/hostkey"
 )
 
 // pageJob is one address that still has to be fetched in this run.
@@ -77,24 +77,8 @@ func (h *hostQueue) readyAt(now time.Time) time.Time {
 	return at
 }
 
-// hostKey names the site a request is paced against: the host and port a request is sent
-// to, in lower case, with the port left out when it is the scheme's own. Two spellings of
-// one site must share a limiter, or the stated pace would quietly be doubled.
+// hostKey names the site a request is paced against. The rule lives in hostkey because a
+// recipe has to name a site the same way the fetcher does.
 func hostKey(u *url.URL) string {
-	host := strings.ToLower(u.Hostname())
-	port := u.Port()
-	if port == "" || port == defaultPortOf(u.Scheme) {
-		return host
-	}
-	return net.JoinHostPort(host, port)
-}
-
-func defaultPortOf(scheme string) string {
-	switch strings.ToLower(scheme) {
-	case "http":
-		return "80"
-	case "https":
-		return "443"
-	}
-	return ""
+	return hostkey.Of(u)
 }
