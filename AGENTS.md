@@ -36,7 +36,8 @@
   `--recipe` for what was discovered, at the recipe's pace and signed in with its cookie.
   Either way it fetches under a concurrency ceiling and one explicit rate for the run and
   stores every 2xx body raw in a store directory (`ledger.db` and
-  `raw/<xx>/<sha256>.zst`). `hoard verify` judges the capture by the recipe's criterion,
+  `raw/<xx>/<sha256>.zst`) and ends by saying how long the site took to answer.
+  `hoard verify` judges the capture by the recipe's criterion,
   `hoard status` says where it stands, `hoard list --json` prints what the store holds,
   and `markdown-pass/derive.mjs` turns those lines into Markdown. Not built
   yet: `robots.txt`, assets, skipping pages already derived, a browser for pages that only
@@ -198,6 +199,14 @@
   obtained is `fetch`'s exit code.
 - **A run says what it did not get.** Expected against obtained is reported, and a run
   that took less than it was asked for does not exit 0.
+- **A run says how long the site took to answer.** After its summary line, `fetch` prints
+  `median response <n> ms over <m> pages` for the pages that run stored, in whole
+  milliseconds, and nothing when it stored none. A page is timed from just before its last
+  request is sent to the last byte of its body being read, so the wait for the pace, a
+  redirect's earlier hops, refusals and errors are not in it. The figure is a fact about the
+  run and goes to the output only: the ledger keeps no duration, and the times come back
+  beside `RunSummary` and not in it, because the summary says what the ledger holds and is
+  compared as a value. The summary stays the first line, the one tests and scripts read.
 - **A pace flag typed beside `--recipe` wins for that run, and the run says so.**
   `--workers`, `--rate`, `--timeout` and `--user-agent` are one rule for all four: a flag
   that is typed wins over the recipe for that one run, and one that is not typed leaves the

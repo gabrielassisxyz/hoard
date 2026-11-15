@@ -63,6 +63,14 @@ not typed leaves the recipe's value. Each value that was replaced is said on sta
 error, naming the flag, the value used and the recipe's, so a log read later does not take
 that run for one at the recipe's pace.
 
+After its summary line, `fetch` says how long the site took to answer:
+`median response <n> ms over <m> pages`, over the pages that run stored. Each page is timed
+from just before its last request was sent to the last byte of its body, so the wait for the
+pace, a redirect's earlier hops, refusals and errors are not in it. A site that is asked too
+fast usually slows down before it starts refusing, and this is the number to compare between
+two runs at different paces. A run that stored nothing, such as a second one over a finished
+capture, prints only its summary line.
+
 ### Capturing part of a site
 
 `discover` records every address the site lists. To take only part of it, say so when
