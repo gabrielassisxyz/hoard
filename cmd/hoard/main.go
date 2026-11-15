@@ -43,6 +43,8 @@ func hoardMain(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	switch args[0] {
 	case "fetch":
 		return runFetchCommand(ctx, args[1:], stdout, stderr)
+	case "list":
+		return runListCommand(args[1:], stdout, stderr)
 	case "-h", "--help", "help":
 		printTopLevelUsage(stdout)
 		return exitCodeComplete
@@ -58,6 +60,7 @@ func printTopLevelUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "commands:")
 	fmt.Fprintln(w, "  fetch   fetch a list of addresses into a raw store")
+	fmt.Fprintln(w, "  list    list the pages a store holds, one JSON object per line")
 }
 
 type fetchOptions struct {
