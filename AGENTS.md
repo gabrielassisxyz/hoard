@@ -24,13 +24,20 @@
 
 ## Scope (current)
 
-- **Current scope:** `hoard fetch` exists. It reads a list of addresses, fetches them under
-  a concurrency ceiling and an explicit rate per host, stores every 2xx body raw in a store
-  directory (`ledger.db` and `raw/<xx>/<sha256>.zst`), and reports how many it holds. Not
-  built yet: recipe files, discovering addresses, the success criterion, cookies,
-  `robots.txt`, assets, deriving clean HTML and Markdown. The first target is one pipeline
-  from a list of addresses to a checked raw capture; don't expand beyond it without a
-  present need, and if a change drifts past it, STOP and flag it.
+- **Current scope:** one pipeline exists, from a site's recipe to reading copies of its
+  pages, and it has only ever run against synthetic sites in its own tests.
+  `hoard discover` records a site's addresses from its sitemap, an index page or a
+  command. `hoard fetch` exists in two forms: `--list` for a plain file of addresses, and
+  `--recipe` for what was discovered, at the recipe's pace and signed in with its cookie.
+  Either way it fetches under a concurrency ceiling and an explicit rate per host and
+  stores every 2xx body raw in a store directory (`ledger.db` and
+  `raw/<xx>/<sha256>.zst`). `hoard verify` judges the capture by the recipe's criterion,
+  `hoard status` says where it stands, `hoard list --json` prints what the store holds,
+  and `markdown-pass/derive.mjs` turns those lines into clean HTML and Markdown. Not built
+  yet: `robots.txt`, assets, skipping pages already derived, a browser for pages that only
+  exist after JavaScript runs. The next target is the first recipe for a real site, kept
+  outside this repository; don't expand beyond that without a present need, and if a
+  change drifts past it, STOP and flag it.
 
 <!-- BEGIN universal-principles v3 -->
 ## Working principles
@@ -147,7 +154,25 @@
 - **A site is described by a recipe, and a recipe is data.** A recipe file holds values
   only: where the list of addresses comes from, the rate, the credential's location, the
   success criterion. A site that needs logic to produce its list supplies a separate
-  command that prints the addresses. An unknown key in a recipe is an error.
+  command that prints the addresses. An unknown key in a recipe is an error, and so is a
+  key that belongs to another way of finding pages; one load reports every problem.
+- **A recipe collects one site.** A discovered address on another host is left out and
+  counted. What counts as one site is decided in one place, `internal/hostkey`.
+- **A discovery gives the whole list or fails.** A sitemap index is read exactly one level
+  deep. When any document cannot be read nothing is recorded, because a partial list looks
+  complete to everything that reads the ledger afterwards.
+- **The session cookie is decided for every request.** It goes to the recipe's own host,
+  over https or to this machine itself, and nowhere else: not to the host a redirect leads
+  to, not over plain http. No client here keeps a cookie jar or follows a redirect by
+  itself, so `hostkey.SessionMayGoTo` is the only thing that puts a cookie on a request.
+- **A cookie file is a secret on disk.** One readable by group or others is refused, and
+  no message quotes its content.
+- **A command that only reads does not create a store.** `list`, `status`, `verify` and
+  `fetch --recipe` refuse a directory with no ledger; only `discover` and `fetch --list`
+  create one.
+- **The criterion is the recipe's three values and nothing else.** Failed and pending
+  addresses are reported by `verify` and do not fail it; whether everything asked for was
+  obtained is `fetch`'s exit code.
 - **A run says what it did not get.** Expected against obtained is reported, and a run
   that took less than it was asked for does not exit 0.
 - **The body is written before its row.** A body file goes in by temporary file and rename;
@@ -184,6 +209,7 @@
 | hurdle | class | gate |
 |---|---|---|
 | `bin/worktree` falls back to `master` when `origin/HEAD` is unset, which a fresh clone can lack; run `git remote set-head origin -a` and check the banner says `main` | tripwire | none yet |
+| A test whose mutation survives is the suspect before the code is: a fragment check ran under a pattern that already excluded fragments, and a failing command printed an off-site address, so both went red for a reason other than the rule they named | tripwire | none yet |
 | A test that asserts an upper bound on elapsed time fails on a loaded CI runner, because `go test` compiles the pure-Go SQLite beside it and can starve a test for hundreds of milliseconds; assert lower bounds, or read the property off the code (a limiter's burst, which host owns which queue) | tripwire | none yet |
 
 **A hurdle promoted to a gate is deleted from this table, not duplicated.** The gate is the

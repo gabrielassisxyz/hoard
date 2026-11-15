@@ -3,8 +3,8 @@
 A personal web capture tool. It collects the raw HTML of a list of pages, then derives
 clean HTML and Markdown from what it stored.
 
-**Status: nothing works yet.** The repository holds its conventions and gates; the first
-capture pipeline is being built.
+**Status: early.** The pipeline runs end to end against synthetic sites in its own tests.
+It has not been run against a real site yet.
 
 ## What it is meant to do
 
@@ -18,6 +18,43 @@ capture pipeline is being built.
 
 Fetching and deriving are deliberately apart. The stored response is the source of truth,
 so a better cleaning pass tomorrow needs no second visit to the site.
+
+## How a site is captured
+
+A site is described once, in a recipe: a small TOML file that says where the list of
+pages comes from, how fast the site may be asked, and what a complete capture looks like.
+
+```toml
+[site]
+name = "example"
+host = "example.com"
+
+[discover]
+kind = "sitemap"                  # or "links", or "command"
+url = "https://example.com/sitemap.xml"
+
+[fetch]
+rate = 1.0                        # requests per second
+cookie_file = "~/secrets/example.cookie"   # only for a site that needs a login
+
+[verify]
+min_pages = 100
+min_body_bytes = 2000
+forbidden = ["Subscribe to read"]
+```
+
+```sh
+hoard discover --recipe example.toml --store ~/archives/example   # find the pages
+hoard fetch    --recipe example.toml --store ~/archives/example   # fetch what is missing
+hoard verify   --recipe example.toml --store ~/archives/example   # is the capture complete?
+hoard status   --store ~/archives/example                         # where does it stand?
+
+hoard list --store ~/archives/example --json \
+  | node markdown-pass/derive.mjs --out ~/archives/example        # clean HTML and Markdown
+```
+
+Every command can be run again. A page that was fetched is not fetched twice, and a
+second discovery adds only what is new.
 
 ## What it is not
 
