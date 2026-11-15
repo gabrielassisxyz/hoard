@@ -87,7 +87,7 @@ func TestRunNeverAsksOneHostFasterThanItsRate(t *testing.T) {
 	}
 }
 
-func TestRunPacesEachHostOnItsOwn(t *testing.T) {
+func TestRunPacesTwoHostsByTheOneRateOfTheRun(t *testing.T) {
 	serve := func(w http.ResponseWriter, r *http.Request) { writeSyntheticHTML(w, "<p>quick</p>") }
 	first, second := newRecordingSite(t, serve), newRecordingSite(t, serve)
 	st, _ := openFreshStore(t)
@@ -101,19 +101,15 @@ func TestRunPacesEachHostOnItsOwn(t *testing.T) {
 	if !summary.Complete() {
 		t.Fatalf("summary = %v", summary)
 	}
-	for name, site := range map[string]*recordingSite{"first": first, "second": second} {
-		arrivals := site.arrivalTimes("")
-		if span := arrivals[len(arrivals)-1].Sub(arrivals[0]); span < 450*time.Millisecond {
-			t.Errorf("%s host: 6 requests at 10 a second spanned %v, want at least 0.5s", name, span)
-		}
+	arrivals := arrivalsAcross(first, second)
+	if len(arrivals) != 12 {
+		t.Fatalf("%d requests for 12 addresses", len(arrivals))
 	}
-	// Paced separately, the hosts are asked together: the i-th request to one goes out with the
-	// i-th to the other. Sharing one pace, every request is 100ms from the next, whichever host
-	// it is for, and no two hosts are ever asked at the same moment. Elapsed time would also tell
-	// them apart, but only against an upper bound that a busy machine can always break.
-	togetherCount := arrivalsWithACounterpartWithin(first.arrivalTimes(""), second.arrivalTimes(""), 50*time.Millisecond)
-	if togetherCount < 3 {
-		t.Errorf("only %d of the 6 requests to one host went out together with one to the other: the hosts are sharing one pace", togetherCount)
+	// Twelve requests at 10 a second are eleven intervals of 100ms, whichever host each one is
+	// for. Paced per host, the two are asked side by side and all twelve fit in the half second
+	// that six take.
+	if span := arrivals[len(arrivals)-1].Sub(arrivals[0]); span < 1050*time.Millisecond {
+		t.Errorf("12 requests to two hosts at 10 a second spanned %v, want at least 1.1s: each host is paced on its own", span)
 	}
 }
 
@@ -293,6 +289,56 @@ func TestRunDoesNotDelayAnotherHostBehindARefusal(t *testing.T) {
 	}
 	if !served[len(served)-1].Before(refused[1]) {
 		t.Errorf("the bystander was served after the refusing host's retry, which came %v after the refusal", refused[1].Sub(refused[0]))
+	}
+}
+
+func TestRunKeepsTheOtherHostsToTheRateWhileOneRests(t *testing.T) {
+	refusals := &failuresThenSuccess{n: 1}
+	resting := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
+		if refusals.stillFailing() {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		writeSyntheticHTML(w, "<p>after the rest</p>")
+	})
+	bystander := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
+		writeSyntheticHTML(w, "<p>never refused</p>")
+	})
+	st, _ := openFreshStore(t)
+	// Listed first, the resting host is asked first, and its refusal is the run's first answer.
+	addresses := append(numberedAddresses(resting, "r", 6), numberedAddresses(bystander, "b", 12)...)
+	const pause = 400 * time.Millisecond
+
+	summary := runFetchOver(t, st, addresses, func(cfg *fetch.RunConfig) {
+		cfg.Rate = 20
+		cfg.Workers = 4
+		cfg.RefusalPause = pause
+	})
+
+	if !summary.Complete() {
+		t.Fatalf("summary = %v", summary)
+	}
+	rested, served := resting.arrivalTimes(""), bystander.arrivalTimes("")
+	if len(rested) != 7 || len(served) != 12 {
+		t.Fatalf("requests: resting host %d, bystander %d", len(rested), len(served))
+	}
+	if gap := rested[1].Sub(rested[0]); gap < pause || gap > pauseWithSlack(pause) {
+		t.Errorf("the refusing host was asked again after %v, want its own pause of %v", gap, pause)
+	}
+	askedDuringThePause := 0
+	for _, at := range served {
+		if at.After(rested[0]) && at.Before(rested[1]) {
+			askedDuringThePause++
+		}
+	}
+	if askedDuringThePause < 2 {
+		t.Errorf("the bystander was asked %d times while the other host rested: it waited out a pause that was not its own", askedDuringThePause)
+	}
+	// Nineteen requests at 20 a second are eighteen intervals of 50ms, whichever host each was
+	// for. Paced per host, the bystander's twelve run beside the other host's seven.
+	all := arrivalsAcross(resting, bystander)
+	if span := all[len(all)-1].Sub(all[0]); span < 875*time.Millisecond {
+		t.Errorf("19 requests to two hosts at 20 a second spanned %v, want at least 0.9s: each host is paced on its own", span)
 	}
 }
 

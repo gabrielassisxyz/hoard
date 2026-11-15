@@ -257,20 +257,15 @@ func bodyFilesUnder(t *testing.T, storeDir string) []string {
 	return files
 }
 
-// arrivalsWithACounterpartWithin counts the arrivals in one list that have an arrival in the
-// other within the given distance. Two hosts paced separately are asked at the same moments;
-// two hosts sharing one pace are never asked together.
-func arrivalsWithACounterpartWithin(arrivals, others []time.Time, distance time.Duration) int {
-	count := 0
-	for _, at := range arrivals {
-		for _, other := range others {
-			if at.Sub(other).Abs() <= distance {
-				count++
-				break
-			}
-		}
+// arrivalsAcross are the moments requests reached any of the sites, oldest first: the rate is
+// the run's, so it is read off every host's requests together.
+func arrivalsAcross(sites ...*recordingSite) []time.Time {
+	var times []time.Time
+	for _, site := range sites {
+		times = append(times, site.arrivalTimes("")...)
 	}
-	return count
+	slices.SortFunc(times, time.Time.Compare)
+	return times
 }
 
 // mostArrivalsInAnyWindow is the largest number of arrivals that fall within one window

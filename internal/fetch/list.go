@@ -1,6 +1,6 @@
 // Package fetch brings a list of addresses home. It requests each one under a ceiling on
-// requests in flight and a pace per host, keeps every body raw in a store, and records in
-// the store's ledger what became of each address.
+// requests in flight and one pace for the whole run, keeps every body raw in a store, and
+// records in the store's ledger what became of each address.
 //
 // Fetching is all it does. Nothing here parses, cleans or rewrites a page: everything
 // readable is derived later from the bodies this package stored.

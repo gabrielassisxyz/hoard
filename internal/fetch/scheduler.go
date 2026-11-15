@@ -6,19 +6,25 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
-// fetchScheduler is the scheduler. One goroutine runs loop and owns every host's queue, pause and
-// limiter, so the decisions need no locks; the requests themselves run in goroutines of
-// their own and report back through results.
+// fetchScheduler is the scheduler. One goroutine runs loop and owns every host's queue and
+// pause and the run's limiter, so the decisions need no locks; the requests themselves run
+// in goroutines of their own and report back through results.
 //
-// Requests are started only when a worker slot is free, the host is not paused and its
-// limiter has a token. Deciding that before starting, instead of letting a worker block on
-// the limiter, is what keeps one slow or refusing host from holding every worker while
-// other hosts wait.
+// Requests are started only when a worker slot is free, the host is not paused and the
+// run's limiter has a token. Deciding that before starting, instead of letting a worker
+// block on the limiter, is what keeps one slow or refusing host from holding every worker
+// while other hosts wait.
 type fetchScheduler struct {
-	cfg       RunConfig
-	client    *http.Client
+	cfg    RunConfig
+	client *http.Client
+	// limiter spaces every request of the run, whatever host it goes to. A site that sends
+	// each address on to another of its own names is one server answering twice per page, and
+	// a limiter per name would ask it twice as fast as the rate that was set.
+	limiter   *rate.Limiter
 	hosts     []*hostQueue
 	hostByKey map[string]*hostQueue
 	cursor    int // where the next scan for a ready host starts, so hosts take turns
@@ -39,9 +45,10 @@ func newFetchScheduler(cfg RunConfig) *fetchScheduler {
 			Timeout:   cfg.Timeout,
 			Transport: transport,
 			// Redirects are followed by the scheduler, one request at a time, so that each hop
-			// is paced and paused like any other request to the host it leads to.
+			// is paced like any other request and paused by the host it leads to.
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
+		limiter:   rate.NewLimiter(rate.Limit(cfg.Rate), 1),
 		hostByKey: make(map[string]*hostQueue),
 		// Never full: each request in flight sends exactly once, and there are at most
 		// Workers of them.
@@ -114,8 +121,13 @@ func (e *fetchScheduler) startOneReadyJob(ctx context.Context) bool {
 	for i := range e.hosts {
 		position := (e.cursor + i) % len(e.hosts)
 		host := e.hosts[position]
-		if len(host.waiting) == 0 || now.Before(host.pausedUntil) || !host.limiter.AllowN(now, 1) {
+		if len(host.waiting) == 0 || now.Before(host.pausedUntil) {
 			continue
+		}
+		// The token is asked for only once a host that may be asked is found, so a paused
+		// host never spends one. Without a token no other host could start either.
+		if !e.limiter.AllowN(now, 1) {
+			return false
 		}
 		e.cursor = position + 1
 		e.start(ctx, host.takeNext())
@@ -124,6 +136,9 @@ func (e *fetchScheduler) startOneReadyJob(ctx context.Context) bool {
 	return false
 }
 
+// earliestReadiness is the moment the next request may start: once some host with an address
+// waiting is out of its pause, and once the run's limiter has a token. It is the zero time when
+// no host has anything waiting.
 func (e *fetchScheduler) earliestReadiness() time.Time {
 	now := time.Now()
 	var earliest time.Time
@@ -135,7 +150,22 @@ func (e *fetchScheduler) earliestReadiness() time.Time {
 			earliest = at
 		}
 	}
+	if earliest.IsZero() {
+		return earliest
+	}
+	if tokenAt := e.nextTokenAt(now); tokenAt.After(earliest) {
+		return tokenAt
+	}
 	return earliest
+}
+
+// nextTokenAt is when the run's limiter has a token again. Looking does not spend the token;
+// the reservation is handed straight back.
+func (e *fetchScheduler) nextTokenAt(now time.Time) time.Time {
+	reservation := e.limiter.ReserveN(now, 1)
+	tokenAt := now.Add(reservation.DelayFrom(now))
+	reservation.CancelAt(now)
+	return tokenAt
 }
 
 func (e *fetchScheduler) start(ctx context.Context, job *pageJob) {
@@ -245,8 +275,8 @@ func (e *fetchScheduler) pauseHost(host *hostQueue, job *pageJob, result attempt
 }
 
 // followRedirect sends a job on to where it was redirected. The hop waits in the queue of the
-// host it leads to, behind that host's limiter and pause, so it is paced like any other
-// request. It is not an attempt of its own: an address's attempts are the answers that were
+// host it leads to, behind that host's pause and the run's limiter, so it is paced like any
+// other request. It is not an attempt of its own: an address's attempts are the answers that were
 // not just directions.
 func (e *fetchScheduler) followRedirect(job *pageJob, result attemptResult) error {
 	target := result.redirectTo

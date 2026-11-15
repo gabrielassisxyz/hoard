@@ -45,6 +45,38 @@ func TestRunPacesEveryHopOfARedirect(t *testing.T) {
 	}
 }
 
+func TestRunPacesARedirectToAnotherHostByTheSameRate(t *testing.T) {
+	landing := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
+		writeSyntheticHTML(w, "<p>"+r.URL.Path+"</p>")
+	})
+	// Every listed address sends the client to the same path on another host, the way a site
+	// lists its www addresses and serves them from its bare domain.
+	listed := newRecordingSite(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, landing.address(r.URL.Path), http.StatusMovedPermanently)
+	})
+	st, _ := openFreshStore(t)
+	addresses := numberedAddresses(listed, "p", 6)
+
+	started := time.Now()
+	summary := runFetchOver(t, st, addresses, func(cfg *fetch.RunConfig) {
+		cfg.Rate = 20
+		cfg.Workers = 4
+	})
+	elapsed := time.Since(started)
+
+	if !summary.Complete() {
+		t.Fatalf("summary = %v", summary)
+	}
+	if fromList, landed := listed.requestCount(), landing.requestCount(); fromList != 6 || landed != 6 {
+		t.Fatalf("requests: listed host %d, landing host %d, want 6 each", fromList, landed)
+	}
+	// Each host alone was asked six times, five intervals of 50ms at 20 a second. Together they
+	// were asked twelve times, eleven intervals: 550ms. Paced per host, the run ends near 250ms.
+	if elapsed < 550*time.Millisecond {
+		t.Errorf("6 addresses that each redirect to another host took %v at 20 a second, want at least 550ms: each host is paced on its own", elapsed)
+	}
+}
+
 func TestRunPacesARedirectHopAgainstTheHostItLeadsTo(t *testing.T) {
 	t.Parallel()
 	refusals := &failuresThenSuccess{n: 1}
