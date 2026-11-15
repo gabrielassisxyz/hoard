@@ -73,8 +73,8 @@ func TestFetchByRecipeFetchesWhatWasDiscoveredAtTheRecipesPace(t *testing.T) {
 	if run.exitCode != 0 {
 		t.Fatalf("exit code %d, stderr: %s", run.exitCode, run.stderr)
 	}
-	if got := strings.TrimSpace(run.stdout); got != "3 listed, 3 held, 0 failed, 0 pending" {
-		t.Errorf("stdout = %q", got)
+	if got := summaryLineOf(run.stdout); got != "3 listed, 3 held, 0 failed, 0 pending" {
+		t.Errorf("stdout = %q", run.stdout)
 	}
 	site.mu.Lock()
 	agents := append([]string(nil), site.agents...)
@@ -99,6 +99,32 @@ func TestFetchByRecipeFetchesWhatWasDiscoveredAtTheRecipesPace(t *testing.T) {
 	}
 }
 
+func TestFetchByRecipePrintsTheMedianResponseTimeAfterTheSummary(t *testing.T) {
+	const wait = 80 * time.Millisecond
+	site := newRecipeSite(t, wait, "/a", "/b", "/c")
+	recipePath := site.recipe(t)
+	storeDir := site.discovered(t, recipePath)
+
+	run := runHoardBinary(t, "fetch", "--store", storeDir, "--recipe", recipePath)
+
+	if run.exitCode != 0 {
+		t.Fatalf("exit code %d, stderr: %s", run.exitCode, run.stderr)
+	}
+	if got := summaryLineOf(run.stdout); got != "3 listed, 3 held, 0 failed, 0 pending" {
+		t.Errorf("the first line is %q", got)
+	}
+	// A figure that follows the site's wait is a measurement and not a constant, which is what
+	// separates a recipe run that is timed from one that only prints the line.
+	if got := medianResponseMillisecondsOf(t, run.stdout, 3); got < int(wait.Milliseconds()) || got > 2000 {
+		t.Errorf("median response %d ms from a site that waits %v before every answer", got, wait)
+	}
+
+	again := runHoardBinary(t, "fetch", "--store", storeDir, "--recipe", recipePath)
+	if want := "3 listed, 3 held, 0 failed, 0 pending\n"; again.exitCode != 0 || again.stdout != want {
+		t.Errorf("second run: exit code %d, stdout %q, want only %q", again.exitCode, again.stdout, want)
+	}
+}
+
 func TestFetchByRecipeAnswersForTheWholeLedger(t *testing.T) {
 	site := newRecipeSite(t, 0, "/a", "/gone/b", "/c")
 	recipePath := site.recipe(t)
@@ -109,8 +135,8 @@ func TestFetchByRecipeAnswersForTheWholeLedger(t *testing.T) {
 		if run.exitCode != 1 {
 			t.Errorf("run %d: exit code %d, want 1 for a capture with a failed address", attempt, run.exitCode)
 		}
-		if got := strings.TrimSpace(run.stdout); got != "3 listed, 2 held, 1 failed, 0 pending" {
-			t.Errorf("run %d: stdout = %q", attempt, got)
+		if got := summaryLineOf(run.stdout); got != "3 listed, 2 held, 1 failed, 0 pending" {
+			t.Errorf("run %d: stdout = %q", attempt, run.stdout)
 		}
 	}
 	if hits := site.hitsOn("/gone/b"); hits != 1 {
